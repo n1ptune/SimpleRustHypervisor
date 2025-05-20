@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
-mod panic;
-mod pl011;
+
 #[macro_use]
 mod console;
-use pl011::pl011_init;
+mod logging;
+mod panic;
+mod pl011;
 
+use log::*;
 core::arch::global_asm!(include_str!("entry.asm"));
 
 
@@ -13,7 +15,8 @@ core::arch::global_asm!(include_str!("entry.asm"));
 pub extern "C" fn rust_main() -> ! {
     // this function is the entry point, since the linker looks for a function
     // named `_start` by default
-    pl011_init();
-    println!("execute rust_main!");
+    pl011::pl011_init();
+    logging::init();
+    error!("execute rust_main!");
     loop {}
 }

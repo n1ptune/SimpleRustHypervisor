@@ -1,0 +1,12 @@
+[package]
+name = "SimpleRustHypervisor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[profile.dev]
+panic = "abort"     # 禁用 panic 时的栈展开
+
+[profile.release]
+panic = "abort"

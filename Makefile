@@ -20,13 +20,16 @@ run: build
 	qemu-system-aarch64 -cpu cortex-a72 -machine virt,gic-version=3 -smp 1 \
                     -m 512M -nographic \
                     -bios $(uboot_path) \
-                    -device loader,file=$(hypervisor_img),addr=0x40200000,force-raw=on
+                    -device loader,file=$(hypervisor_img),addr=0x40200000,force-raw=on \
+					-device virtio-serial-device
 
 debug: build
 	qemu-system-aarch64 -cpu cortex-a72 -machine virt,gic-version=3 -smp 1 \
                     -m 512M -nographic \
                     -bios $(uboot_path) \
-                    -device loader,file=$(hypervisor_img),addr=0x40200000,force-raw=on -s -S
+                    -device loader,file=$(hypervisor_img),addr=0x40200000,force-raw=on \
+					-device virtio-serial-device \
+					-s -S
 clean:
 	cargo clean
 	rm -rf bin/SimpleRustHypervisor

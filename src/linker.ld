@@ -1,9 +1,6 @@
 ENTRY(_start)
 EXTERN(_start)
-EXTERN(sp_stack_start)
-EXTERN(sp_stack_end)
-EXTERN(NCPU)
-EXTERN(SZ_4K)
+
 NCPU = 4;
 SZ_4K = 0x00001000;
 SRH_BASE = 0x40200000;
@@ -47,5 +44,13 @@ SECTIONS
     . = ALIGN(4096);
 
 
-    HIMAGE_END = .;
+    .heap (NOLOAD) : ALIGN(4096) {
+      __heap_start = .;
+      . = . + 0x200000;   /* 2MB 堆空间，可根据需要调整 */
+      __heap_end = .;
+      FILL(0x00)
+    }
+    . = ALIGN(4096);
+
+    SRH_END = .;
 }

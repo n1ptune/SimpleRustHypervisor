@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use core::ptr::{read_volatile, write_volatile};
 
 const PL011_BASE: usize = 0x0900_0000;

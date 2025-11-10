@@ -1,7 +1,7 @@
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
 /// a simple logger
-pub struct SimpleLogger;
+struct SimpleLogger;
 
 impl Log for SimpleLogger {
     fn enabled(&self, _metadata: &Metadata) -> bool {
@@ -19,7 +19,7 @@ impl Log for SimpleLogger {
             Level::Trace => 90, // BrightBlack
         };
         println!(
-            "\u{1B}[{}m[SRHyperVisor][{:>5}] {}\u{1B}[0m",
+            "\u{1B}[{}m[SR Guest][{:>5}] {}\u{1B}[0m",
             color,
             record.level(),
             record.args(),
@@ -40,5 +40,4 @@ pub fn init() {
         Some("TRACE") => LevelFilter::Trace,
         _ => LevelFilter::Off,
     });
-    println!("Logger initialized");
 }

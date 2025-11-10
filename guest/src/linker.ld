@@ -1,8 +1,11 @@
 ENTRY(_start)
 EXTERN(_start)
-
+EXTERN(sp_stack_start)
+EXTERN(sp_stack_end)
+EXTERN(NCPU)
+EXTERN(PER_STACK_SIZE)
 NCPU = 4;
-PER_STACK_SIZE = 0x00010000;
+PER_STACK_SIZE = 0x00001000;
 SRH_BASE = 0x40200000;
 SECTIONS
 {
@@ -44,13 +47,5 @@ SECTIONS
     . = ALIGN(4096);
 
 
-    .heap (NOLOAD) : ALIGN(4096) {
-      __heap_start = .;
-      . = . + 0x200000;   /* 2MB 堆空间，可根据需要调整 */
-      __heap_end = .;
-      FILL(0x00)
-    }
-    . = ALIGN(4096);
-
-    SRH_END = .;
+    HIMAGE_END = .;
 }

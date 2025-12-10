@@ -1,0 +1,364 @@
+use alloc::{format, string::String};
+use crate::{gic::{VgicIrqConfig, VgicVcpu, gicr::*, gicv3::{gic_create_lr, gic_write_list_reg}}, vm::{MmioAccess, Vcpu}};
+use super::gicd::*;
+use crate::vm::{MmioSpace};
+use log::*;
+pub struct VirtualGicd {
+    pub base_addr: usize,
+    pub size: usize,
+}
+
+impl VirtualGicd {
+    pub fn new(base_addr: usize, size: usize) -> Self {
+        VirtualGicd { base_addr, size }
+    }
+}
+
+impl MmioSpace for VirtualGicd {
+    fn base_addr(&self) -> usize {
+        self.base_addr
+    }
+
+    fn size(&self) -> usize {
+        self.size
+    }
+
+    fn mmio_read(&self, vcpu: &mut Vcpu, reg: &mut u64, offset: usize, access: MmioAccess) -> bool {
+        match offset {
+            GICD_CTLR => {
+                let mut vgic_dist = vcpu.vgic_dist.lock();
+                let mut data = GICD_CTLR_ARE_NA;
+                if vgic_dist.enabled {
+                    data |= GICD_CTLR_ENABLE_G1A;
+                }
+                *reg = data as u64;
+                return true;
+            },
+            GICD_TYPER => {
+                // ITLinesNumber
+                let mut vgic_dist = vcpu.vgic_dist.lock();
+                let mut reg_val = (((vgic_dist.nspis + 32) >> 5) - 1) as u32;
+                // CPUNumber
+                reg_val |= (8 - 1) << 8; // GICD_TYPER_CPUNumber_SHIFT is 8
+                *reg = reg_val as u64;
+                return true;
+            },
+            GICD_IIDR => {
+                *reg = gicd_read32(GICD_IIDR) as u64;
+                return true;
+            },
+            GICD_TYPER2 => {
+                // Linux reads this reg to the feature of gicv3, fake it
+                *reg = 0;
+                return true;
+            },
+            // Handle GICD_IGROUPR ranges
+            o if o >= gicd_igroupr(0) && o < gicd_igroupr(31) + 4 => {
+                let irq_num = (offset - gicd_igroupr(0)) / 4 * 32;
+                let mut igrp = 0u32;
+                for i in 0..32 {
+                    if let Some(irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        igrp |= (irq.group as u32) << i;
+                    }
+                }
+                *reg = igrp as u64;
+                return true;
+            },
+            // Handle GICD_ISENABLER ranges
+            o if o >= gicd_isenabler(0) && o < gicd_isenabler(31) + 4 => {
+                let irq_num = (offset - gicd_isenabler(0)) / 4 * 32;
+                let mut isen = 0u32;
+                for i in 0..32 {
+                    if let Some(irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        isen |= (irq.enabled as u32) << i;
+                    }
+                }
+                *reg = isen as u64;
+                return true;
+            },
+            // Handle GICD_IPRIORITYR ranges
+            o if o >= gicd_ipriorityr(0) && o < gicd_ipriorityr(254) + 4 => {
+                let irq_num = (offset - gicd_ipriorityr(0)) / 4 * 4;
+                let mut iprio = 0u32;
+                for i in 0..4 {
+                    if let Some(irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        iprio |= (irq.priority as u32) << (i * 8);
+                    }
+                }
+                *reg = iprio as u64;
+                return true;
+            },
+            // Handle GICD_ITARGETSR ranges
+            o if o >= gicd_itargetsr(0) && o < gicd_itargetsr(254) + 4 => {
+                let irq_num = (offset - gicd_itargetsr(0)) / 4 * 4;
+                let mut itar = 0u32;
+                for i in 0..4 {
+                    if let Some(irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        itar |= (irq.affinity as u32) << (i * 8);
+                    }
+                }
+                *reg = itar as u64;
+                return true;
+            },
+            // Handle other cases that return 0
+            o if (o >= gicd_ispendr(0) && o < gicd_ispendr(31) + 4) ||     // GICD_ISPENDR
+                  (o >= gicd_icpendr(0) && o < gicd_icpendr(31) + 4) ||     // GICD_ICPENDR
+                  (o >= gicd_isactiver(0) && o < gicd_isactiver(31) + 4) ||     // GICD_ISACTIVER
+                  (o >= gicd_icactiver(0) && o < gicd_icactiver(31) + 4) ||     // GICD_ICACTIVER
+                  (o >= gicd_icfgr(0) && o < gicd_icfgr(63) + 4) ||     // GICD_ICFGR
+                  (o >= gicd_irouter(0) && o < gicd_irouter(31) + 4) ||   // GICD_IROUTER(0-31)
+                  (o >= gicd_irouter(32) && o < gicd_irouter(1019) + 4) => { // GICD_IROUTER(32-1019)
+                *reg = 0;
+                return true;
+            },
+            _ => {
+                error!("[vgicd_read] Unable to handle the GICD_* request");
+            }
+        }
+        false
+    }
+
+    fn mmio_write(&mut self, vcpu: &mut Vcpu, val: u64, offset: usize, access: MmioAccess) -> bool {
+        
+        match offset {
+            // simulate GICD_CTLR
+            GICD_CTLR => {
+                let mut vgic_dist = vcpu.vgic_dist.lock();
+                if (val as u32) & GICD_CTLR_ENABLE_G1A != 0 {
+                    vgic_dist.enabled = true;
+                } else {
+                    vgic_dist.enabled = false;
+                }
+                return true;
+            },
+            // simulate GICD_TYPER and GICD_IIDR
+            GICD_TYPER | GICD_IIDR => {
+                // Read only register
+                return true;
+            },
+            // Handle GICD_IGROUPR ranges
+            o if o >= gicd_igroupr(0) && o < gicd_igroupr(31) + 4 => {
+                // Implementation would go here
+                return true;
+            },
+            // Handle GICD_ISENABLER ranges
+            o if o >= gicd_isenabler(0) && o < gicd_isenabler(31) + 4 => {
+                let irq_num = (offset - gicd_isenabler(0)) / 4 * 32;
+                for i in 0..32 {
+                    if let Some(mut irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        if ((val as u32) >> i) & 0x1 != 0 {
+                            irq.enabled = 1;
+                            Vcpu::vgic_irq_enable(irq_num + i);
+                        }
+                    }
+                }
+                return true;
+            },
+            // Handle GICD_ICENABLER ranges
+            o if o >= gicd_icenabler(0) && o < gicd_icenabler(31) + 4 => {
+                let irq_num = (offset - gicd_icenabler(0)) / 4 * 32;
+                for i in 0..32 {
+                    if let Some(mut irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        if ((val as u32) >> i) & 0x1 != 0 {
+                            irq.enabled = 0;
+                            Vcpu::vgic_irq_disable(irq_num + i);
+                        }
+                    }
+                }
+                return true;
+            },
+            // Handle GICD_IPRIORITYR ranges
+            o if o >= gicd_ipriorityr(0) && o < gicd_ipriorityr(254) + 4 => {
+                let irq_num = (offset - gicd_ipriorityr(0)) / 4 * 4;
+                for i in 0..4 {
+                    if let Some(mut irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        irq.priority = (((val as u32) >> (i * 8)) & 0xff) as u8;
+                    }
+                }
+                return true;
+            },
+            // Handle GICD_ITARGETSR ranges
+            o if o >= gicd_itargetsr(0) && o < gicd_itargetsr(254) + 4 => {
+                let irq_num = (offset - gicd_itargetsr(0)) / 4 * 4;
+                for i in 0..4 {
+                    if let Some(mut irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        irq.affinity = (((val as u32) >> (i * 8)) & 0xff) as u8;
+                        Vcpu::vgic_target_set(irq_num + i, irq.affinity);
+                    }
+                }
+                return true;
+            },
+            // Handle other cases that do nothing
+            o if (o >= gicd_ispendr(0) && o < gicd_ispendr(31) + 4) ||     // GICD_ISPENDR
+                  (o >= gicd_icpendr(0) && o < gicd_icpendr(31) + 4) ||     // GICD_ICPENDR
+                  (o >= gicd_isactiver(0) && o < gicd_isactiver(31) + 4) ||     // GICD_ISACTIVER
+                  (o >= gicd_icactiver(0) && o < gicd_icactiver(31) + 4) ||     // GICD_ICACTIVER
+                  (o >= gicd_icfgr(0) && o < gicd_icfgr(63) + 4) ||     // GICD_ICFGR
+                  (o >= gicd_irouter(0) && o < gicd_irouter(31) + 4) ||   // GICD_IROUTER(0-31)
+                  (o >= gicd_irouter(32) && o < gicd_irouter(1019) + 4) => { // GICD_IROUTER(32-1019)
+                return true;
+            },
+            _ => {
+                error!("[vgicd_write] Unable to handle the GICD_* request");
+            }
+        }
+        false
+    }
+
+    fn debug_info(&self) -> String {
+        format!("VirtualGicd start {} size {}",  self.base_addr, self.size)
+    }
+}
+
+
+pub struct VirtualGicr {
+    pub base_addr: usize,
+    pub size: usize,
+}
+
+impl VirtualGicr {
+    pub fn new(base_addr: usize, size: usize) -> Self {
+        VirtualGicr { base_addr, size }
+    }
+}
+
+impl MmioSpace for VirtualGicr {
+    fn base_addr(&self) -> usize {
+        self.base_addr
+    }
+
+    fn size(&self) -> usize {
+        self.size
+    }
+
+    fn mmio_read(&self, vcpu: &mut Vcpu, reg: &mut u64, offset: usize, access: MmioAccess) -> bool {
+        let _ = access;
+        let gicr_index = offset / GICR_STRIDE;
+        let gicr_offset = offset % GICR_STRIDE;
+        
+        match gicr_offset {
+            GICR_CTLR | GICR_WAKER | GICR_IGROUPR0 => {
+                *reg = 0;
+                return true;
+            },
+            GICR_IIDR => {
+                *reg = gicr_read32(vcpu.id, GICR_IIDR) as u64;
+                return true;
+            },
+            GICR_TYPER => {
+                *reg = gicr_read64(vcpu.id, GICR_TYPER);
+                return true;
+            },
+            GICR_PIDR2 => {
+                *reg = gicr_read32(vcpu.id, GICR_PIDR2) as u64;
+                return true;
+            },
+            GICR_ISENABLER0 => {
+                let mut isen = 0u32;
+                for i in 0..32 {
+                    if let Some(irq) = vcpu.vgic_irq_get(i) {
+                        isen |= (irq.enabled as u32) << i;
+                    }
+                }
+                *reg = isen as u64;
+                return true;
+            },
+            GICR_ICENABLER0 | GICR_ICPENDR0 | GICR_ISACTIVER0 | GICR_ICACTIVER0 | GICR_ICFGR0 | GICR_ICFGR1 | GICR_IGRPMODR0 => {
+                *reg = 0;
+                return true;
+            },
+            o if o >= gicr_ipriorityr(0) && o < gicr_ipriorityr(7) + 4 => {
+                let irq_num = (offset - gicr_ipriorityr(0)) / 4 * 4;
+                let mut iprio = 0u32;
+                for i in 0..4 {
+                    if let Some(irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        iprio |= (irq.priority as u32) << (i * 8);
+                    }
+                }
+                *reg = iprio as u64;
+                return true;
+            },
+            GICR_ICFGR0 | GICR_ICFGR1 | GICR_IGRPMODR0 => {
+                *reg = 0;
+                return true;
+            },
+            _ => {
+                error!("[vgicr_read] Unable to handle the GICR_* request");
+            }
+        }
+        false
+    }
+
+    fn mmio_write(&mut self, vcpu: &mut Vcpu, val: u64, offset: usize, access: MmioAccess) -> bool {
+        let gicr_index = offset / GICR_STRIDE;
+        let gicr_offset = offset % GICR_STRIDE;
+        
+        match gicr_offset {
+            GICR_CTLR | GICR_WAKER | GICR_IGROUPR0 | GICR_TYPER | GICR_PIDR2 => {
+                return true;
+            },
+            GICR_ISENABLER0 => {
+                for i in 0..32 {
+                    if let Some(mut irq) = vcpu.vgic_irq_get(i) {
+                        if ((val >> i) & 0x1) != 0 {
+                            irq.enabled = 1;
+                            Vcpu::vgic_irq_enable(i);
+                        }
+                    }
+                }
+                return true;
+            },
+            GICR_ICENABLER0 | GICR_ICPENDR0 | GICR_ISACTIVER0 | GICR_ICACTIVER0 => {
+                return true;
+            },
+            o if o >= gicr_ipriorityr(0) && o < gicr_ipriorityr(7) + 4 => {
+                let irq_num = (offset - gicr_ipriorityr(0)) / 4 * 4;
+                for i in 0..4 {
+                    if let Some(mut irq) = vcpu.vgic_irq_get(irq_num + i) {
+                        irq.priority = ((val >> (i * 8)) & 0xff) as u8;
+                    }
+                }
+                return true;
+            },
+            GICR_ICFGR0 | GICR_ICFGR1 | GICR_IGRPMODR0 => {
+                return true;
+            },
+            _ => {
+                error!("[vgicr_write] Unable to handle the GICR_* request");
+            }
+        }
+        false
+    }
+
+    fn debug_info(&self) -> String {
+        format!("VirtualGicr start {} size {}",  self.base_addr, self.size)
+    }
+    
+}
+
+
+fn alloc_lr(vgic_cpu: &mut VgicVcpu) -> Option<usize> {
+    // 假设GIC_MAX_LRS是一个全局常量或可以从某处获取
+    let gic_max_lrs = 16; // 这个值需要根据实际情况设置
+    
+    for i in 0..gic_max_lrs {
+        if (vgic_cpu.used_lr & (1 << i)) == 0 {
+            vgic_cpu.used_lr |= 1 << i;
+            return Some(i);
+        }
+    }
+    
+    None
+}
+
+pub fn virq_inject(vcpu: &mut Vcpu, pirq: u32, virq: u32) -> Result<(), &'static str> {
+    let lr = gic_create_lr(pirq, virq);
+    
+    if let Some(n) = alloc_lr(&mut vcpu.vgic) {
+        gic_write_list_reg(n, lr);
+        debug!("Injected IRQ {} to List Register {}", virq, n);
+        Ok(())
+    } else {
+        Err("No List Register")
+    }
+}

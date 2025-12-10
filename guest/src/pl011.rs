@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(unused)]
 use core::ptr::{read_volatile, write_volatile};
 
 const PL011_BASE: usize = 0x0900_0000;
@@ -56,30 +56,3 @@ pub fn pl011_getc() -> Option<u8> {
     }
 }
 
-
-pub fn pl011_irq_handler() {
-    let status = unsafe { core::ptr::read_volatile(reg(PL011_MIS)) };
-    
-    if status & (1 << 4) != 0 {
-        loop {
-            if let Some(c) = pl011_getc() {
-                pl011_putc(c as u8);
-            }
-        }
-    }
-    
-    unsafe { core::ptr::write_volatile(reg(PL011_ICR), 1 << 4) };
-}
-
-pub fn pl011_init() {
-    // 关闭UART
-    unsafe { write_volatile(reg(PL011_CR), 0); }
-    // 关闭所有中断
-    unsafe { write_volatile(reg(PL011_IMSC), 0); }
-    // 使能FIFO并设置8位数据
-    unsafe { write_volatile(reg(PL011_LCRH), PL011_LCRH_FEN | PL011_LCRH_WLEN_8BIT); }
-    // 使能接收和发送
-    unsafe { write_volatile(reg(PL011_CR), 0x301); }
-    // 使能接收中断
-    unsafe { write_volatile(reg(PL011_IMSC), 1 << 4); }
-}

@@ -1,9 +1,9 @@
 use core::panic::PanicInfo;
-use log::*;
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     if let Some(location) = info.location() {
-        error!(
+        println!(
             "panicked at '{}', {}:{}:{}",
             info.message(),
             location.file(),
@@ -12,7 +12,7 @@ fn panic(info: &PanicInfo) -> ! {
         );
     }
     else{
-        error!("panicked at '{}'", info.message());
+        println!("panicked at '{}'", info.message());
     }
     loop {}
 }

@@ -1,6 +1,18 @@
 
-use crate::{arch::flush_tlb, isb, read_sysreg, write_sysreg};
+use alloc::sync::Arc;
+#[allow(unused)]
+use log::*;
+use spin::Mutex;
 
+use crate::{arch::flush_tlb, 
+    gic::{GIC_IRQ_OPS, VgicDist, VgicVcpu, GicIrqOps}, 
+    isb, 
+    read_sysreg, 
+    write_sysreg,
+    utils::IrqRef, 
+    vm::MmioManager,
+
+};
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct VcpuRegs {
@@ -53,24 +65,35 @@ pub enum VcpuState {
     Blocked,
 }
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vcpu {
-    pub id: u32,
     pub regs: VcpuRegs,
+    pub id: usize,
+    pub vm_id: u32,
     pub state: VcpuState,
     pub entry_point: u64,
+    pub vgic : VgicVcpu,
+    pub vgic_dist : Arc<Mutex<VgicDist>>,
+    pub mmio_manager: Arc<Mutex<MmioManager>>,
 }
+
+
 
 #[allow(unused)]
 impl Vcpu {
-    pub fn new(id: u32, entry_point: u64) -> Self {
+    pub fn new(id: usize, vm_id: u32, entry_point: u64, vgic_dist: Arc<Mutex<VgicDist>>, mmio_manager: Arc<Mutex<MmioManager>>) -> Self {
         let mut vcpu = Vcpu {
             id,
+            vm_id,
             regs: VcpuRegs::new(entry_point),
             state: VcpuState::Stopped,
             entry_point,
+            vgic: VgicVcpu::new(),
+            vgic_dist,
+            mmio_manager,
         };
         
+        vcpu.vgic.init(id);
         // setup entry point
         vcpu.regs.elr_el1 = entry_point;
         vcpu
@@ -130,6 +153,7 @@ impl Vcpu {
         flush_tlb();
         self.restore_guest_context();
         write_sysreg!(spsr_el2, 0x3c5);
+        write_sysreg!(tpidr_el2, self as *mut Vcpu as u64);
         // write_sysreg!(cpacr_el1, 3 << 20);
         isb!();
         unsafe {
@@ -168,6 +192,65 @@ impl Vcpu {
             },
         }
     }
+
+    // pub fn get_vm(&self) -> Option<Arc<Mutex<VirtualMachine>>> {
+    //     let vm_manager = VM_MANAGER.lock();
+    //     debug!("get_vm {}", self.vm_id);
+    //     for vm_arc in vm_manager.iter() {
+    //         let vmid = vm_arc.lock().id;
+    //         debug!("vm_id {}", vmid);
+    //         if vmid == self.vm_id {
+    //             debug!("vm_id {}", vmid);
+    //             return Some(vm_arc.clone());
+    //         }
+    //     }
+
+    //     None
+    // }
+
+
+
+    pub fn vgic_irq_get<'a>(&'a mut self, irq_num: usize) -> Option<IrqRef<'a>> {
+        if irq_num < 16 {
+            // SGI
+            self.vgic.sgis.get_mut(irq_num).map(IrqRef::Local)
+        } else if irq_num < 32 {
+            // PPI
+            let idx = irq_num - 16;
+            self.vgic.ppi.get_mut(idx).map(IrqRef::Local)
+        } else {
+            // SPI
+            let idx = irq_num - 32;
+            // 1. 获取锁
+            let mut dist = self.vgic_dist.lock();
+            
+            // 2. 检查索引
+            if idx < dist.spis.len() {
+                // 3. 将 锁 和 索引 一起打包返回
+                // 此时锁没有释放，而是交给了调用者
+                Some(IrqRef::Shared(dist, idx))
+            } else {
+                // 没找到，dist 离开作用域，锁自动释放
+                None
+            }
+        }
+    }
+
+    pub fn vgic_irq_enable(irq_num: usize) {
+        let gic_irq_ops = GIC_IRQ_OPS.lock();
+        gic_irq_ops.unmask(irq_num as u32);
+    }
+
+    pub fn vgic_irq_disable(irq_num: usize) {
+        let gic_irq_ops = GIC_IRQ_OPS.lock();
+        gic_irq_ops.mask(irq_num as u32);
+    }
+
+    pub fn vgic_target_set(irq_num: usize, target: u8) {
+        let gic_irq_ops = GIC_IRQ_OPS.lock();
+        gic_irq_ops.set_affinity(irq_num as u32, target as u32);
+    }
+
 }
 
 #[allow(unused)]

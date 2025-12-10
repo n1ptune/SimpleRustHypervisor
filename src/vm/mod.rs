@@ -1,21 +1,17 @@
 mod vm;
 mod vcpu;
-mod exception_handler;
 mod devices;
 mod regs;
+mod mmio;
 
+use alloc::sync::Arc;
+pub use mmio::*;
+use spin::Mutex;
 pub use vm::*;
-pub use vcpu::*;
-pub use exception_handler::*;
-pub use devices::init_virtual_devices;
+pub use vcpu::{ExitReason, VmExitAction, Vcpu};
+pub use regs::{EsrEl2, Ec};
+pub use super::exception::setup_exception_handlers;
 use log::*;
-
-core::arch::global_asm!(include_str!("exceptions.asm"));
-
-#[no_mangle]
-extern "C" fn handle_exception() {
-    panic!("Unexpected exception occurred!");
-}
 
 pub fn run() -> Result<(), &'static str> {
     info!("Starting Guest VM...");
@@ -23,8 +19,6 @@ pub fn run() -> Result<(), &'static str> {
     // initialize exception handlers
     setup_exception_handlers();
     
-    // initialize virtual devices
-    init_virtual_devices()?;
     
     let vm_config = VmConfig {
         guest_image: GuestVMImage {
@@ -41,17 +35,22 @@ pub fn run() -> Result<(), &'static str> {
     
     // create virtual machine
     info!("Creating virtual machine...");
-    let mut vm = VirtualMachine::new(1, vm_config)?;
+    let vm = VirtualMachine::new(1, vm_config)?;
+    let vm_shared = Arc::new(Mutex::new(vm));
+    
+    {
+        let mut manager = VM_MANAGER.lock();
+        // 这里 clone 的是 Arc 指针，代价极小，仅仅是引用计数 +1
+        // 管理器现在持有了一份指向该 VM 的指针
+        manager.push(vm_shared.clone()); 
+    }
     
     // start virtual machine
     info!("Starting virtual machine...");
-    vm.start()?;
+    let mut vm_guard = vm_shared.lock();
+    vm_guard.start()?;
     
     // store the virtual machine in the global manager
-    {
-        let mut vm_manager = VM_MANAGER.lock();
-        *vm_manager = Some(vm);
-    }
     
     info!("Guest VM started successfully");
     Ok(())

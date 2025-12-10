@@ -1,17 +1,9 @@
 #![allow(unused)]
-use crate::vm::{ExitReason, VmExitAction, VM_MANAGER};
+use core::arch::asm;
+
+use crate::vm::{AccessSize, ExitReason, MmioAccess, VM_MANAGER, Vcpu, VmExitAction};
+use crate::vm::{EsrEl2, Ec};
 use log::*;
-use super::regs::{EsrEl2, Ec};
-use super::devices::{DEVICE_MANAGER, DeviceAccess};
-
-// ESR_EL2 异常类型定义
-const ESR_EC_SHIFT: u64 = 26;
-const ESR_EC_MASK: u64 = 0x3F;
-
-// 异常类型
-const ESR_EC_HVC64: u64 = 0x16;      // HVC 从 AArch64 状态
-const ESR_EC_DATA_ABORT: u64 = 0x24;  // 数据中止异常
-const ESR_EC_INST_ABORT: u64 = 0x20;  // 指令中止异常
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +16,13 @@ pub struct ExceptionContext {
     pub x: [u64; 31], // x0-x30
 }
 
+pub fn get_current_vcpu_ptr() -> *mut Vcpu {
+    let tpidr_el2: u64;
+    unsafe {
+        asm!("mrs {}, tpidr_el2", out(reg) tpidr_el2);
+    }
+    tpidr_el2 as *mut Vcpu
+}
 
 pub fn dump_regs(ctx: &mut ExceptionContext){
     unsafe {
@@ -45,7 +44,7 @@ pub extern "C" fn handle_sync_exception_from_asm(ctx: &mut ExceptionContext) {
     // dump_regs(ctx);
     // panic!("vm exit");
     // dispatch ec
-    // info!("Exception Class: 0x{:x}", ctx.esr.ec());
+    info!("Exception Class: 0x{:x}", ctx.esr.ec());
     match Ec::from_u8(ctx.esr.ec()) {
         Ec::DataAbort => handle_data_abort(ctx),
         Ec::InstAbort => handle_insn_abort(ctx),
@@ -56,24 +55,51 @@ pub extern "C" fn handle_sync_exception_from_asm(ctx: &mut ExceptionContext) {
 
 pub fn handle_data_abort(ctx: &mut ExceptionContext){
     // debug!("handle_data_abort");
-    let mut dm = DEVICE_MANAGER.lock();
-    // debug!("ctx esr iss {:b}", ctx.esr.iss());
-    let len = ctx.esr.sas();
-    let rt = ctx.esr.srt() as usize; 
-    match ctx.esr.is_write(){
-        Some(false) => {
-            ctx.x[rt] = dm.handle_mmio(ctx.far,DeviceAccess::Read , len, None).unwrap();
-            ctx.pc += 4;
-        }
-        Some(true) => {
-            // dump_regs(ctx);
-            dm.handle_mmio(ctx.far, DeviceAccess::Write, len, Some(ctx.x[rt]));
-            ctx.pc += 4;
-        }
-        _ => {
-            error!("handle_data_abort");
-        }
+    let vcpu_ptr = get_current_vcpu_ptr();
+
+    if vcpu_ptr.is_null() {
+        panic!("Critical: Exception in hypervisor context!");
     }
+
+    let vcpu_ref = unsafe { &mut *vcpu_ptr };
+    let mmio_manager = vcpu_ref.mmio_manager.clone();
+
+
+    let sas = ctx.esr.sas();
+    let srt = ctx.esr.srt() as usize;
+    let wnr = ctx.esr.is_write().unwrap();
+
+    let access = MmioAccess {
+                            ipa: ctx.far as usize, 
+                            pc: ctx.pc as usize, 
+                            wnr: wnr, 
+                            access_size: AccessSize::from_size(sas).unwrap() 
+                        };
+
+
+    if mmio_manager.lock().handle_mmio(vcpu_ref, &mut ctx.x[srt], access){
+        ctx.pc += 4;
+        return;
+    }
+    info!("unknown data abort at FAR=0x{:x}", ctx.far);
+    // let mut dm = DEVICE_MANAGER.lock();
+    // // debug!("ctx esr iss {:b}", ctx.esr.iss());
+    // let len = ctx.esr.sas();
+    // let rt = ctx.esr.srt() as usize; 
+    // match ctx.esr.is_write(){
+    //     Some(false) => {
+    //         ctx.x[rt] = dm.handle_mmio(ctx.far,DeviceAccess::Read , len, None).unwrap();
+    //         ctx.pc += 4;
+    //     }
+    //     Some(true) => {
+    //         // dump_regs(ctx);
+    //         dm.handle_mmio(ctx.far, DeviceAccess::Write, len, Some(ctx.x[rt]));
+    //         ctx.pc += 4;
+    //     }
+    //     _ => {
+    //         error!("handle_data_abort");
+    //     }
+    // }
     // dm.handle_mmio(ctx.far, access, 1, value);
     // debug!("handle_data_abort done");
 }

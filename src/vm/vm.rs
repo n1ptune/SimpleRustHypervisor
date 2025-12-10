@@ -1,10 +1,15 @@
 use crate::mem::{Frame, MemFlags, PageTableRoot};
+use crate::vm::MmioManager;
 use crate::vm::vcpu::{Vcpu, VcpuState, ExitReason, VmExitAction};
 use crate::write_sysreg;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
 use log::*;
 use crate::mem::page_count;
+use crate::gic::VgicDist;
+use crate::vdevices::VirtualUart;
 
 extern "C" {
     pub static _binary_bin_guest_bin_start: usize;
@@ -19,7 +24,7 @@ pub struct GuestVMImage {
 }
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VmConfig {
     pub guest_image: GuestVMImage,
     pub guest_dtb: usize,
@@ -38,6 +43,8 @@ pub struct VirtualMachine {
     pub state: VmState,
     pub guest_memory_base: Frame,
     pub root_page_table: PageTableRoot,
+    pub vgic_dist : Arc<Mutex<VgicDist>>,
+    pub mmio_manager: Arc<Mutex<MmioManager>>,
 }
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,11 +58,12 @@ pub enum VmState {
 #[allow(unused)]
 impl VirtualMachine {
     pub fn new(id: u32, config: VmConfig) -> Result<Self, &'static str> {
-        let mut vcpus = Vec::new();
-        
+        let mut vcpus = Vec::with_capacity(config.vcpu_count as usize);
+        let mmio_manager = Arc::new(Mutex::new(MmioManager::new()));
+        let vgic_dist = Arc::new(Mutex::new(VgicDist::new()));
         // create vcpus
         for i in 0..config.vcpu_count {
-            let vcpu = Vcpu::new(i, config.entry_addr as u64);
+            let vcpu = Vcpu::new(i as usize, id, config.entry_addr as u64, vgic_dist.clone(), mmio_manager.clone());
             vcpus.push(vcpu);
         }
         
@@ -68,6 +76,8 @@ impl VirtualMachine {
             state: VmState::Created,
             guest_memory_base, // default guest memory base
             root_page_table: PageTableRoot::new(),
+            vgic_dist,
+            mmio_manager,
         })
         } else {
             panic!("no mem");
@@ -94,6 +104,17 @@ impl VirtualMachine {
               guest_phys_base.start_paddr(), 
               self.config.memory_size);
         
+
+        self.set_up_mmio()?;
+        Ok(())
+    }
+
+    pub fn set_up_mmio(&mut self) -> Result<(), &'static str> {
+        info!("Setting up MMIO for VM {}", self.id);
+
+        let uart = VirtualUart::new(0x09000000);
+        self.mmio_manager.lock().add_mmio_space(Box::new(uart));
+
         Ok(())
     }
     
@@ -118,6 +139,7 @@ impl VirtualMachine {
         Ok(())
     }
     
+
     pub fn start(&mut self) -> Result<(), &'static str> {
         if self.state != VmState::Created {
             return Err("VM is not in created state");
@@ -128,6 +150,8 @@ impl VirtualMachine {
         
         // load guest image
         self.load_guest_image()?;
+
+        self.vgic_dist.lock().init(&mut *self.mmio_manager.lock());
         
         // Set up stage 2 translation by writing the page table address to VTTBR_EL2
         let page_table_addr = self.root_page_table.get_root() as u64;
@@ -198,7 +222,4 @@ impl VirtualMachine {
     }
 }
 
-lazy_static! {
-    pub static ref VM_MANAGER: Mutex<Option<VirtualMachine>> = Mutex::new(None);
-}
-
+pub static VM_MANAGER: Mutex<Vec<Arc<Mutex<VirtualMachine>>>> = Mutex::new(Vec::new());

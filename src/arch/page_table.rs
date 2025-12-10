@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use bitflags::bitflags;
 use crate::mem::{MemFlags, PageTable};
 bitflags! {
@@ -107,9 +108,13 @@ pub const fn vtcr_ps(val: u64) -> u64 { (val & 0x7) << 16 }
 pub const VTCR_NSW: u64 = 1 << 29;
 pub const VTCR_NSA: u64 = 1 << 30;
 
-// HCR_EL2 寄存器字段定义
-pub const HCR_VM: u64 = 1 << 0;  // VM bit
-pub const HCR_RW: u64 = 1 << 31; // RW bit
+// Hypervisor Configuration Register
+pub const HCR_VM: u64 = 1 << 0;   /* EL1&0 stage 2 address translation enabled. */
+pub const HCR_SWIO: u64 = 1 << 1;   /* Data cache invalidate by set/way instructions in EL1 */
+pub const HCR_FMO: u64 = 1 << 3;   /* Physical FIQ Routing */
+pub const HCR_IMO: u64 = 1 << 4;   /* Physical IRQ Routing */
+pub const HCR_RW: u64 = 1 << 31;  /* The Execution state for EL1 is AArch64 */
+pub const HCR_TSC: u64 = 1 << 19;  /* Trap SMC instructions to EL2 */
 
 // Memory attribute indices
 pub const DEVICE_NGNRNE_INDEX: u64 = 0;

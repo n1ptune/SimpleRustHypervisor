@@ -33,7 +33,7 @@ macro_rules! write_sysreg {
     ($reg:ident, $value:expr) => {{
         unsafe {
             core::arch::asm!(
-                concat!("msr ", stringify!($reg), ", {0}"),
+                concat!("msr ", stringify!($reg), ", {0:x}"),
                 in(reg) $value,
                 options(nostack, nomem)
             );

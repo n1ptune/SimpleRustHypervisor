@@ -1,3 +1,4 @@
+#![allow(unused)]
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use spin::Mutex;
@@ -166,6 +167,8 @@ impl VirtualDevice for VirtualTimer {
         self.control = 0;
     }
 }
+
+
 
 // 设备管理器
 pub struct DeviceManager {

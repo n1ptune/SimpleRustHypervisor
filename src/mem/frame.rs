@@ -22,7 +22,7 @@ pub struct PhysManager{
 
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Frame {
     start_paddr: PhysAddr,
     frame_count: usize,

@@ -160,7 +160,7 @@ pub fn stage2_mmu_init() {
 
 /* Provides configuration controls for virtualization */
 pub fn hyper_setup() {
-    let hcr = HCR_RW | HCR_VM;
+    let hcr = HCR_TSC | HCR_RW | HCR_FMO | HCR_IMO | HCR_VM;
     info!("Setting hcr_el2 to 0x{:x} and enable stage 2 address translation", hcr);
     write_sysreg!(hcr_el2, hcr);
     isb!();

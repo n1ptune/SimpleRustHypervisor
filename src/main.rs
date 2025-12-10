@@ -16,6 +16,10 @@ mod mem;
 mod config;
 mod arch;
 mod vm;
+mod gic;
+mod exception;
+mod vdevices;
+mod utils;
 
 extern crate alloc;
 core::arch::global_asm!(include_str!("entry.asm"));
@@ -32,6 +36,10 @@ pub extern "C" fn rust_main() -> ! {
     vm::setup_exception_handlers();
     mem::init();
     
+    gic::gic_v3_init();
+    gic::hyper_spi_config(gic::UART_IRQ_LINE, gic::GIC_EDGE_TRIGGER);
+
+
     // initialize Stage 2 MMU
     mem::stage2_mmu_init();
     mem::hyper_setup();

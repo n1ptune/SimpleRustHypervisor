@@ -155,6 +155,10 @@ const ESR_ELX_ISS_MASK: u64 = genmask(24, 0);
 
 
 impl EsrEl2{
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+    
     pub const fn raw(self) -> u64 {
         self.0
     }

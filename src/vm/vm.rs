@@ -186,19 +186,19 @@ impl VirtualMachine {
         // 打印寄存器信息
         if let Some(vcpu) = self.vcpus.get(0) {
             info!("=== Guest VCPU Registers ===");
-            info!("PC: 0x{:x}", vcpu.regs.pc);
-            info!("ELR_EL1: 0x{:x}", vcpu.regs.elr_el1);
-            info!("SP_EL0: 0x{:x}", vcpu.regs.sp_el0);
-            info!("SP_EL1: 0x{:x}", vcpu.regs.sp_el1);
-            info!("SPSR_EL1: 0x{:x}", vcpu.regs.spsr_el1);
-            info!("ESR_EL1: 0x{:x}", vcpu.regs.esr_el1);
-            info!("FAR_EL1: 0x{:x}", vcpu.regs.far_el1);
-            info!("SCTLR_EL1: 0x{:x}", vcpu.regs.sctlr_el1);
-            info!("TCR_EL1: 0x{:x}", vcpu.regs.tcr_el1);
-            info!("TTBR0_EL1: 0x{:x}", vcpu.regs.ttbr0_el1);
-            info!("TTBR1_EL1: 0x{:x}", vcpu.regs.ttbr1_el1);
-            info!("MAIR_EL1: 0x{:x}", vcpu.regs.mair_el1);
-            info!("VBAR_EL1: 0x{:x}", vcpu.regs.vbar_el1);
+            info!("PC: 0x{:x}", vcpu.regs.elr);
+            info!("ELR_EL1: 0x{:x}", vcpu.sysregs.elr_el1);
+            // info!("SP_EL0: 0x{:x}", vcpu.regs.sp_el0);
+            // info!("SP_EL1: 0x{:x}", vcpu.regs.sp_el1);
+            info!("SPSR_EL1: 0x{:x}", vcpu.sysregs.spsr_el1);
+            info!("ESR_EL1: 0x{:x}", vcpu.sysregs.esr_el1);
+            info!("FAR_EL1: 0x{:x}", vcpu.sysregs.far_el1);
+            info!("SCTLR_EL1: 0x{:x}", vcpu.sysregs.sctlr_el1);
+            info!("TCR_EL1: 0x{:x}", vcpu.sysregs.tcr_el1);
+            info!("TTBR0_EL1: 0x{:x}", vcpu.sysregs.ttbr0_el1);
+            info!("TTBR1_EL1: 0x{:x}", vcpu.sysregs.ttbr1_el1);
+            info!("MAIR_EL1: 0x{:x}", vcpu.sysregs.mair_el1);
+            info!("VBAR_EL1: 0x{:x}", vcpu.sysregs.vbar_el1);
             
             // 打印通用寄存器 X0-X30
             for i in (0..31).step_by(4) {

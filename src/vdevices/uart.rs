@@ -27,19 +27,19 @@ impl MmioSpace for VirtualUart {
         self.size
     }
 
-    fn mmio_read(&self, _vcpu: &mut Vcpu, reg: &mut u64, offset: usize, _access: MmioAccess) -> bool {
+    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, _access: MmioAccess) -> bool {
         // debug!("mmio read {:x}", offset);
         match offset {
             0x00 => {
-                *reg = self.data_reg as u64;
+                vcpu.regs.x[srt] = self.data_reg as u64;
                 true
             }, // UARTDR
             0x18 => {
-                *reg = self.status_reg as u64; 
+                vcpu.regs.x[srt] = self.status_reg as u64; 
                 true
             }, // UARTFR
             0x30 => {
-                *reg = self.control_reg as u64; 
+                vcpu.regs.x[srt] = self.control_reg as u64; 
                 true
             }, // UARTCR
             _ => {
@@ -49,8 +49,9 @@ impl MmioSpace for VirtualUart {
         }
     }
 
-    fn mmio_write(&mut self, _vcpu: &mut Vcpu, val: u64, offset: usize, _access: MmioAccess) -> bool {
+    fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, _access: MmioAccess) -> bool {
         // debug!("mmio write {:x} {:x}", offset, value);
+        let val = vcpu.regs.x[srt];
         match offset {
             0x00 => {
                 // UARTDR - 数据寄存器

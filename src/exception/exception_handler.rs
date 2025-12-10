@@ -1,6 +1,7 @@
 #![allow(unused)]
 use core::arch::asm;
 
+use crate::read_sysreg;
 use crate::vm::{AccessSize, ExitReason, MmioAccess, VM_MANAGER, Vcpu, VmExitAction};
 use crate::vm::{EsrEl2, Ec};
 use log::*;
@@ -40,21 +41,10 @@ pub fn dump_regs(ctx: &mut ExceptionContext){
 
 }
 #[no_mangle]
-pub extern "C" fn handle_sync_exception_from_asm(ctx: &mut ExceptionContext) {
+pub extern "C" fn handle_sync_exception_from_asm() {
     // dump_regs(ctx);
     // panic!("vm exit");
     // dispatch ec
-    info!("Exception Class: 0x{:x}", ctx.esr.ec());
-    match Ec::from_u8(ctx.esr.ec()) {
-        Ec::DataAbort => handle_data_abort(ctx),
-        Ec::InstAbort => handle_insn_abort(ctx),
-        _ => ()
-    }
-    // ctx.pc += 4;
-}
-
-pub fn handle_data_abort(ctx: &mut ExceptionContext){
-    // debug!("handle_data_abort");
     let vcpu_ptr = get_current_vcpu_ptr();
 
     if vcpu_ptr.is_null() {
@@ -62,26 +52,45 @@ pub fn handle_data_abort(ctx: &mut ExceptionContext){
     }
 
     let vcpu_ref = unsafe { &mut *vcpu_ptr };
-    let mmio_manager = vcpu_ref.mmio_manager.clone();
+
+    
+    let esr = EsrEl2::new(read_sysreg!(ESR_EL2));
+
+    match Ec::from_u8(esr.ec()) {
+        Ec::DataAbort => handle_data_abort(vcpu_ref, esr),
+        Ec::InstAbort => handle_insn_abort(vcpu_ref),
+        _ => {
+            info!("Exception Class: 0x{:x}", esr.ec());
+        }
+    }
+    // ctx.pc += 4;
+}
+
+pub fn handle_data_abort(vcpu: &mut Vcpu, esr: EsrEl2) {
+    
+    let mmio_manager = vcpu.mmio_manager.clone();
 
 
-    let sas = ctx.esr.sas();
-    let srt = ctx.esr.srt() as usize;
-    let wnr = ctx.esr.is_write().unwrap();
+    let sas = esr.sas();
+    let srt = esr.srt() as usize;
+    let wnr = esr.is_write().unwrap();
+
+
+    let far = read_sysreg!(FAR_EL2);
 
     let access = MmioAccess {
-                            ipa: ctx.far as usize, 
-                            pc: ctx.pc as usize, 
+                            ipa: far as usize, 
+                            pc: vcpu.regs.elr as usize, 
                             wnr: wnr, 
                             access_size: AccessSize::from_size(sas).unwrap() 
                         };
 
 
-    if mmio_manager.lock().handle_mmio(vcpu_ref, &mut ctx.x[srt], access){
-        ctx.pc += 4;
+    if mmio_manager.lock().handle_mmio(vcpu, srt, access){
+        vcpu.regs.elr += 4;
         return;
     }
-    info!("unknown data abort at FAR=0x{:x}", ctx.far);
+    info!("unknown data abort at FAR=0x{:x}", far);
     // let mut dm = DEVICE_MANAGER.lock();
     // // debug!("ctx esr iss {:b}", ctx.esr.iss());
     // let len = ctx.esr.sas();
@@ -104,7 +113,7 @@ pub fn handle_data_abort(ctx: &mut ExceptionContext){
     // debug!("handle_data_abort done");
 }
 
-pub fn handle_insn_abort(ctx: &mut ExceptionContext){
+pub fn handle_insn_abort(vcpu: &mut Vcpu){
     debug!("handle_insn_abort");
     panic!();
 }

@@ -23,7 +23,7 @@ impl MmioSpace for VirtualGicd {
         self.size
     }
 
-    fn mmio_read(&self, vcpu: &mut Vcpu, reg: &mut u64, offset: usize, access: MmioAccess) -> bool {
+    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
         match offset {
             GICD_CTLR => {
                 let mut vgic_dist = vcpu.vgic_dist.lock();
@@ -31,7 +31,7 @@ impl MmioSpace for VirtualGicd {
                 if vgic_dist.enabled {
                     data |= GICD_CTLR_ENABLE_G1A;
                 }
-                *reg = data as u64;
+                vcpu.regs.x[srt] = data as u64;
                 return true;
             },
             GICD_TYPER => {
@@ -40,16 +40,16 @@ impl MmioSpace for VirtualGicd {
                 let mut reg_val = (((vgic_dist.nspis + 32) >> 5) - 1) as u32;
                 // CPUNumber
                 reg_val |= (8 - 1) << 8; // GICD_TYPER_CPUNumber_SHIFT is 8
-                *reg = reg_val as u64;
+                vcpu.regs.x[srt] = reg_val as u64;
                 return true;
             },
             GICD_IIDR => {
-                *reg = gicd_read32(GICD_IIDR) as u64;
+                vcpu.regs.x[srt] = gicd_read32(GICD_IIDR) as u64;
                 return true;
             },
             GICD_TYPER2 => {
                 // Linux reads this reg to the feature of gicv3, fake it
-                *reg = 0;
+                vcpu.regs.x[srt] = 0;
                 return true;
             },
             // Handle GICD_IGROUPR ranges
@@ -61,7 +61,7 @@ impl MmioSpace for VirtualGicd {
                         igrp |= (irq.group as u32) << i;
                     }
                 }
-                *reg = igrp as u64;
+                vcpu.regs.x[srt] = igrp as u64;
                 return true;
             },
             // Handle GICD_ISENABLER ranges
@@ -73,7 +73,7 @@ impl MmioSpace for VirtualGicd {
                         isen |= (irq.enabled as u32) << i;
                     }
                 }
-                *reg = isen as u64;
+                vcpu.regs.x[srt] = isen as u64;
                 return true;
             },
             // Handle GICD_IPRIORITYR ranges
@@ -85,7 +85,7 @@ impl MmioSpace for VirtualGicd {
                         iprio |= (irq.priority as u32) << (i * 8);
                     }
                 }
-                *reg = iprio as u64;
+                vcpu.regs.x[srt] = iprio as u64;
                 return true;
             },
             // Handle GICD_ITARGETSR ranges
@@ -97,7 +97,7 @@ impl MmioSpace for VirtualGicd {
                         itar |= (irq.affinity as u32) << (i * 8);
                     }
                 }
-                *reg = itar as u64;
+                vcpu.regs.x[srt] = itar as u64;
                 return true;
             },
             // Handle other cases that return 0
@@ -108,7 +108,7 @@ impl MmioSpace for VirtualGicd {
                   (o >= gicd_icfgr(0) && o < gicd_icfgr(63) + 4) ||     // GICD_ICFGR
                   (o >= gicd_irouter(0) && o < gicd_irouter(31) + 4) ||   // GICD_IROUTER(0-31)
                   (o >= gicd_irouter(32) && o < gicd_irouter(1019) + 4) => { // GICD_IROUTER(32-1019)
-                *reg = 0;
+                vcpu.regs.x[srt] = 0;
                 return true;
             },
             _ => {
@@ -118,8 +118,9 @@ impl MmioSpace for VirtualGicd {
         false
     }
 
-    fn mmio_write(&mut self, vcpu: &mut Vcpu, val: u64, offset: usize, access: MmioAccess) -> bool {
+    fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
         
+        let val = vcpu.regs.x[srt];
         match offset {
             // simulate GICD_CTLR
             GICD_CTLR => {
@@ -231,26 +232,26 @@ impl MmioSpace for VirtualGicr {
         self.size
     }
 
-    fn mmio_read(&self, vcpu: &mut Vcpu, reg: &mut u64, offset: usize, access: MmioAccess) -> bool {
+    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
         let _ = access;
         let gicr_index = offset / GICR_STRIDE;
         let gicr_offset = offset % GICR_STRIDE;
         
         match gicr_offset {
             GICR_CTLR | GICR_WAKER | GICR_IGROUPR0 => {
-                *reg = 0;
+                vcpu.regs.x[srt] = 0;
                 return true;
             },
             GICR_IIDR => {
-                *reg = gicr_read32(vcpu.id, GICR_IIDR) as u64;
+                vcpu.regs.x[srt] = gicr_read32(vcpu.id, GICR_IIDR) as u64;
                 return true;
             },
             GICR_TYPER => {
-                *reg = gicr_read64(vcpu.id, GICR_TYPER);
+                vcpu.regs.x[srt] = gicr_read64(vcpu.id, GICR_TYPER);
                 return true;
             },
             GICR_PIDR2 => {
-                *reg = gicr_read32(vcpu.id, GICR_PIDR2) as u64;
+                vcpu.regs.x[srt] = gicr_read32(vcpu.id, GICR_PIDR2) as u64;
                 return true;
             },
             GICR_ISENABLER0 => {
@@ -260,11 +261,11 @@ impl MmioSpace for VirtualGicr {
                         isen |= (irq.enabled as u32) << i;
                     }
                 }
-                *reg = isen as u64;
+                vcpu.regs.x[srt] = isen as u64;
                 return true;
             },
             GICR_ICENABLER0 | GICR_ICPENDR0 | GICR_ISACTIVER0 | GICR_ICACTIVER0 | GICR_ICFGR0 | GICR_ICFGR1 | GICR_IGRPMODR0 => {
-                *reg = 0;
+                vcpu.regs.x[srt] = 0;
                 return true;
             },
             o if o >= gicr_ipriorityr(0) && o < gicr_ipriorityr(7) + 4 => {
@@ -275,11 +276,11 @@ impl MmioSpace for VirtualGicr {
                         iprio |= (irq.priority as u32) << (i * 8);
                     }
                 }
-                *reg = iprio as u64;
+                vcpu.regs.x[srt] = iprio as u64;
                 return true;
             },
             GICR_ICFGR0 | GICR_ICFGR1 | GICR_IGRPMODR0 => {
-                *reg = 0;
+                vcpu.regs.x[srt] = 0;
                 return true;
             },
             _ => {
@@ -289,10 +290,11 @@ impl MmioSpace for VirtualGicr {
         false
     }
 
-    fn mmio_write(&mut self, vcpu: &mut Vcpu, val: u64, offset: usize, access: MmioAccess) -> bool {
+    fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
         let gicr_index = offset / GICR_STRIDE;
         let gicr_offset = offset % GICR_STRIDE;
         
+        let val = vcpu.regs.x[srt];
         match gicr_offset {
             GICR_CTLR | GICR_WAKER | GICR_IGROUPR0 | GICR_TYPER | GICR_PIDR2 => {
                 return true;

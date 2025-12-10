@@ -10,8 +10,8 @@ pub trait MmioSpace{
     fn base_addr(&self) -> usize;
     fn size(&self) -> usize;
 
-    fn mmio_read(&self, vcpu: &mut Vcpu, reg: &mut u64, offset: usize, access: MmioAccess) -> bool;
-    fn mmio_write(&mut self, vcpu: &mut Vcpu, val: u64, offset: usize, access: MmioAccess) -> bool;
+    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool;
+    fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool;
 
     fn debug_info(&self) -> String ;
 }
@@ -76,7 +76,7 @@ impl MmioManager{
         false
     }
 
-    pub fn handle_mmio(&mut self, vcpu: &mut Vcpu, reg: &mut u64, access: MmioAccess) -> bool{
+    pub fn handle_mmio(&mut self, vcpu: &mut Vcpu, srt: usize, access: MmioAccess) -> bool{
         debug!("MMIO Access: {:x?}", access.ipa);
         let addr = access.ipa;
         let wnr = access.wnr;
@@ -84,9 +84,9 @@ impl MmioManager{
             let base = space.base_addr();
             if addr >= base && addr < base + space.size(){
                 if wnr {
-                    return space.mmio_write(vcpu, *reg, addr - base, access);
+                    return space.mmio_write(vcpu, srt, addr - base, access);
                 } else {
-                    return space.mmio_read(vcpu, reg, addr - base, access);
+                    return space.mmio_read(vcpu, srt, addr - base, access);
                 }
             }
         }

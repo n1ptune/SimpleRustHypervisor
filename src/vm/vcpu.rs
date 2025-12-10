@@ -18,8 +18,16 @@ use crate::{arch::flush_tlb,
 pub struct VcpuRegs {
     // 通用寄存器
     pub x: [u64; 31],       // X0-X30
-    pub sp_el0: u64,        // 用户栈指针
-    pub sp_el1: u64,        // 内核栈指针
+    pub spsr: u64,   
+    pub elr: u64,      
+  
+    // pub sp_el0: u64,        // 用户栈指针
+    // pub sp_el1: u64,        // 内核栈指针
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VcpuSysRegs {
     pub elr_el1: u64,       // 异常链接寄存器
     pub spsr_el1: u64,      // 程序状态寄存器
     
@@ -32,18 +40,12 @@ pub struct VcpuRegs {
     pub vbar_el1: u64,      // 向量基址寄存器
     pub esr_el1: u64,       // 异常综合寄存器
     pub far_el1: u64,       // 故障地址寄存器
-
-    pub pc: u64,
 }
 
-impl VcpuRegs {
-    pub fn new(entry_point:u64) -> Self {
-        VcpuRegs {
-            x: [0; 31],
-            sp_el0: 0,
-            sp_el1: 0,
+impl VcpuSysRegs {
+    pub fn new() -> Self {
+        VcpuSysRegs {
             elr_el1: 0,
-            pc: entry_point,
             spsr_el1: 0x3c5, // EL1h, IRQ/FIQ masked
             sctlr_el1: 0x30c50830, // 默认系统控制寄存器值
             tcr_el1: 0,
@@ -56,6 +58,18 @@ impl VcpuRegs {
         }
     }
 }
+
+impl VcpuRegs {
+    pub fn new(entry_point:u64) -> Self {
+        VcpuRegs {
+            x: [0; 31],
+            // sp_el0: 0,
+            // sp_el1: 0,
+            elr: entry_point,
+            spsr: 0,
+        }
+    }
+}
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VcpuState {
@@ -64,10 +78,11 @@ pub enum VcpuState {
     Waiting,
     Blocked,
 }
-#[allow(unused)]
+#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Vcpu {
     pub regs: VcpuRegs,
+    pub sysregs: VcpuSysRegs,
     pub id: usize,
     pub vm_id: u32,
     pub state: VcpuState,
@@ -77,8 +92,6 @@ pub struct Vcpu {
     pub mmio_manager: Arc<Mutex<MmioManager>>,
 }
 
-
-
 #[allow(unused)]
 impl Vcpu {
     pub fn new(id: usize, vm_id: u32, entry_point: u64, vgic_dist: Arc<Mutex<VgicDist>>, mmio_manager: Arc<Mutex<MmioManager>>) -> Self {
@@ -86,6 +99,7 @@ impl Vcpu {
             id,
             vm_id,
             regs: VcpuRegs::new(entry_point),
+            sysregs: VcpuSysRegs::new(),
             state: VcpuState::Stopped,
             entry_point,
             vgic: VgicVcpu::new(),
@@ -95,7 +109,7 @@ impl Vcpu {
         
         vcpu.vgic.init(id);
         // setup entry point
-        vcpu.regs.elr_el1 = entry_point;
+        vcpu.regs.elr = entry_point;
         vcpu
     }
     
@@ -113,38 +127,39 @@ impl Vcpu {
     }
     
     fn restore_guest_context(&mut self) {
-        write_sysreg!(sp_el1, self.regs.sp_el1);
-        write_sysreg!(sp_el0, self.regs.sp_el0);
-        write_sysreg!(elr_el1, self.regs.elr_el1);
-        write_sysreg!(spsr_el1, self.regs.spsr_el1);
-        write_sysreg!(sctlr_el1, self.regs.sctlr_el1);
-        write_sysreg!(tcr_el1, self.regs.tcr_el1);
-        write_sysreg!(ttbr0_el1, self.regs.ttbr0_el1);
-        write_sysreg!(ttbr1_el1, self.regs.ttbr1_el1);
-        write_sysreg!(mair_el1, self.regs.mair_el1);
-        write_sysreg!(vbar_el1, self.regs.vbar_el1);
-        write_sysreg!(esr_el1, self.regs.esr_el1);
-        write_sysreg!(far_el1, self.regs.far_el1);
+        // write_sysreg!(sp_el1, self.regs.sp_el1);
+        // write_sysreg!(sp_el0, self.regs.sp_el0);
+        
+        write_sysreg!(elr_el1, self.sysregs.elr_el1);
+        write_sysreg!(spsr_el1, self.sysregs.spsr_el1);
+        write_sysreg!(sctlr_el1, self.sysregs.sctlr_el1);
+        write_sysreg!(tcr_el1, self.sysregs.tcr_el1);
+        write_sysreg!(ttbr0_el1, self.sysregs.ttbr0_el1);
+        write_sysreg!(ttbr1_el1, self.sysregs.ttbr1_el1);
+        write_sysreg!(mair_el1, self.sysregs.mair_el1);
+        write_sysreg!(vbar_el1, self.sysregs.vbar_el1);
+        write_sysreg!(esr_el1, self.sysregs.esr_el1);
+        write_sysreg!(far_el1, self.sysregs.far_el1);
 
-        write_sysreg!(elr_el2, self.regs.pc);
+        write_sysreg!(elr_el2, self.regs.elr);
         isb!();
     }
 
     fn save_guest_context(&mut self) {
-        self.regs.sp_el1 = read_sysreg!(sp_el1);
-        self.regs.sp_el0 = read_sysreg!(sp_el0);
-        self.regs.elr_el1 = read_sysreg!(elr_el1);
-        self.regs.spsr_el1 = read_sysreg!(spsr_el1);
-        self.regs.sctlr_el1 = read_sysreg!(sctlr_el1);
-        self.regs.tcr_el1 = read_sysreg!(tcr_el1);
-        self.regs.ttbr0_el1 = read_sysreg!(ttbr0_el1);
-        self.regs.ttbr1_el1 = read_sysreg!(ttbr1_el1);
-        self.regs.mair_el1 = read_sysreg!(mair_el1);
-        self.regs.vbar_el1 = read_sysreg!(vbar_el1);
-        self.regs.esr_el1 = read_sysreg!(esr_el1);
-        self.regs.far_el1 = read_sysreg!(far_el1);
+        // self.regs.sp_el1 = read_sysreg!(sp_el1);
+        // self.regs.sp_el0 = read_sysreg!(sp_el0);
+        self.sysregs.elr_el1 = read_sysreg!(elr_el1);
+        self.sysregs.spsr_el1 = read_sysreg!(spsr_el1);
+        self.sysregs.sctlr_el1 = read_sysreg!(sctlr_el1);
+        self.sysregs.tcr_el1 = read_sysreg!(tcr_el1);
+        self.sysregs.ttbr0_el1 = read_sysreg!(ttbr0_el1);
+        self.sysregs.ttbr1_el1 = read_sysreg!(ttbr1_el1);
+        self.sysregs.mair_el1 = read_sysreg!(mair_el1);
+        self.sysregs.vbar_el1 = read_sysreg!(vbar_el1);
+        self.sysregs.esr_el1 = read_sysreg!(esr_el1);
+        self.sysregs.far_el1 = read_sysreg!(far_el1);
 
-        self.regs.pc = read_sysreg!(elr_el2);
+        self.regs.elr = read_sysreg!(elr_el2);
         isb!();
     }
 

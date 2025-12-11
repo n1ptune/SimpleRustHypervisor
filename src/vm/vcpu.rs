@@ -21,8 +21,8 @@ pub struct VcpuRegs {
     pub spsr: u64,   
     pub elr: u64,      
   
-    // pub sp_el0: u64,        // 用户栈指针
-    // pub sp_el1: u64,        // 内核栈指针
+    pub sp_el0: u64,        // 用户栈指针
+    pub sp_el1: u64,        // 内核栈指针
 }
 
 #[repr(C)]
@@ -63,8 +63,8 @@ impl VcpuRegs {
     pub fn new(entry_point:u64) -> Self {
         VcpuRegs {
             x: [0; 31],
-            // sp_el0: 0,
-            // sp_el1: 0,
+            sp_el0: 0,
+            sp_el1: 0,
             elr: entry_point,
             spsr: 0,
         }

@@ -1,5 +1,6 @@
 use crate::mem::{Frame, MemFlags, PageTableRoot};
 use crate::vm::MmioManager;
+use crate::vm::guest::{GuestDtb, GuestVMImage};
 use crate::vm::vcpu::{Vcpu, VcpuState, ExitReason, VmExitAction};
 use crate::write_sysreg;
 use alloc::boxed::Box;
@@ -13,21 +14,15 @@ use crate::vdevices::VirtualUart;
 
 extern "C" {
     pub static _binary_bin_guest_bin_start: usize;
+    pub static _binary_bin_guest_bin_end: usize;
     pub static _binary_bin_guest_bin_size: usize;
-}
-
-#[derive(Debug, Clone)]
-pub struct GuestVMImage {
-    pub name: &'static str,
-    pub start: usize,
-    pub size: usize,
 }
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct VmConfig {
     pub guest_image: GuestVMImage,
-    pub guest_dtb: usize,
+    pub guest_dtb: GuestDtb,
     pub guest_initrd: usize,
     pub entry_addr: usize,
     pub memory_size: usize,
@@ -99,10 +94,11 @@ impl VirtualMachine {
                                     self.config.memory_size,
                                     MemFlags::S2PTE_RW | MemFlags::S2PTE_NORMAL);
         
-        info!("Guest memory mapped: ipa=0x{:x} -> pa=0x{:x}, size=0x{:x}", 
+        info!("Guest memory mapped: ipa=0x{:x} -> pa=0x{:x}, size=0x{:x} end=0x{:x}", 
               guest_ipa_base, 
               guest_phys_base.start_paddr(), 
-              self.config.memory_size);
+              self.config.memory_size, 
+              guest_ipa_base + self.config.memory_size);
         
 
         self.set_up_mmio()?;
@@ -138,6 +134,32 @@ impl VirtualMachine {
         
         Ok(())
     }
+
+    pub fn load_guest_dtb(&mut self) -> Result<(), &'static str> {
+        info!("Loading guest dtb for VM {}", self.id);
+        
+        let dtb = &self.config.guest_dtb;
+        let guest_load_addr = &self.guest_memory_base ;
+        
+        // copy guest dtb to allocated memory
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                dtb.start as *const u8,
+                guest_load_addr.start_paddr() as *mut u8,
+                dtb.size
+            );
+        }
+        
+        for vcpu in &mut self.vcpus {
+            if vcpu.id == 0 {
+                vcpu.regs.x[0] = guest_load_addr.start_paddr() as u64;
+            }
+        }
+        info!("Guest dtb '{}' loaded at 0x{:x}, size: 0x{:x}", 
+              dtb.name, guest_load_addr.start_paddr(), dtb.size);
+        
+        Ok(())
+    }
     
 
     pub fn start(&mut self) -> Result<(), &'static str> {
@@ -150,6 +172,7 @@ impl VirtualMachine {
         
         // load guest image
         self.load_guest_image()?;
+        self.load_guest_dtb()?;
 
         self.vgic_dist.lock().init(&mut *self.mmio_manager.lock());
         

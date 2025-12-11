@@ -1,6 +1,6 @@
 mod vm;
 mod vcpu;
-mod devices;
+mod guest;
 mod regs;
 mod mmio;
 
@@ -10,6 +10,8 @@ use spin::Mutex;
 pub use vm::*;
 pub use vcpu::{ExitReason, VmExitAction, Vcpu};
 pub use regs::{EsrEl2, Ec};
+use crate::vm::guest::{GUEST_DTB, GuestDtb, GuestVMImage};
+
 pub use super::exception::setup_exception_handlers;
 use log::*;
 
@@ -24,9 +26,10 @@ pub fn run() -> Result<(), &'static str> {
         guest_image: GuestVMImage {
             name: "Guest VM",
             start: unsafe { &_binary_bin_guest_bin_start as *const _ as usize },
+            end: unsafe { &_binary_bin_guest_bin_end as *const _ as usize },
             size: unsafe { &_binary_bin_guest_bin_size as *const _ as usize },
         },
-        guest_dtb: 0,
+        guest_dtb: GuestDtb { name: "Guest DTB", start: GUEST_DTB.as_ptr() as usize, end: GUEST_DTB.as_ptr() as usize + GUEST_DTB.len(), size: GUEST_DTB.len() },
         guest_initrd: 0,
         entry_addr: 0x40200000,
         memory_size: 128 * 1024 * 1024, // 128MB

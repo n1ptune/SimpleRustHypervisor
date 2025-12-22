@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 pub use mmio::*;
 pub use regs::{Ec, EsrEl2};
 use spin::Mutex;
-pub use vcpu::{ExitReason, Vcpu, VmExitAction};
+pub use vcpu::{Vcpu};
 pub use vm::*;
 
 pub use super::exception::setup_exception_handlers;

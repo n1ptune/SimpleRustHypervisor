@@ -1,6 +1,6 @@
 
 use alloc::sync::Arc;
-#[allow(unused)]
+
 use log::*;
 use spin::Mutex;
 
@@ -80,13 +80,11 @@ impl VcpuRegs {
         }
     }
 }
-#[allow(unused)]
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VcpuState {
     Stopped,
     Running,
-    Waiting,
-    Blocked,
 }
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -102,7 +100,6 @@ pub struct Vcpu {
     pub mmio_manager: Arc<Mutex<MmioManager>>,
 }
 
-#[allow(unused)]
 impl Vcpu {
     pub fn new(id: usize, vm_id: u32, entry_point: u64, vgic_dist: Arc<Mutex<VgicDist>>, mmio_manager: Arc<Mutex<MmioManager>>) -> Self {
         let mut vcpu = Vcpu {
@@ -161,23 +158,23 @@ impl Vcpu {
         isb!();
     }
 
-    fn save_guest_context(&mut self) {
-        // self.regs.sp_el1 = read_sysreg!(sp_el1);
-        // self.regs.sp_el0 = read_sysreg!(sp_el0);
-        self.sysregs.elr_el1 = read_sysreg!(elr_el1);
-        self.sysregs.spsr_el1 = read_sysreg!(spsr_el1);
-        self.sysregs.sctlr_el1 = read_sysreg!(sctlr_el1);
-        self.sysregs.tcr_el1 = read_sysreg!(tcr_el1);
-        self.sysregs.ttbr0_el1 = read_sysreg!(ttbr0_el1);
-        self.sysregs.ttbr1_el1 = read_sysreg!(ttbr1_el1);
-        self.sysregs.mair_el1 = read_sysreg!(mair_el1);
-        self.sysregs.vbar_el1 = read_sysreg!(vbar_el1);
-        self.sysregs.esr_el1 = read_sysreg!(esr_el1);
-        self.sysregs.far_el1 = read_sysreg!(far_el1);
+    // fn save_guest_context(&mut self) {
+    //     // self.regs.sp_el1 = read_sysreg!(sp_el1);
+    //     // self.regs.sp_el0 = read_sysreg!(sp_el0);
+    //     self.sysregs.elr_el1 = read_sysreg!(elr_el1);
+    //     self.sysregs.spsr_el1 = read_sysreg!(spsr_el1);
+    //     self.sysregs.sctlr_el1 = read_sysreg!(sctlr_el1);
+    //     self.sysregs.tcr_el1 = read_sysreg!(tcr_el1);
+    //     self.sysregs.ttbr0_el1 = read_sysreg!(ttbr0_el1);
+    //     self.sysregs.ttbr1_el1 = read_sysreg!(ttbr1_el1);
+    //     self.sysregs.mair_el1 = read_sysreg!(mair_el1);
+    //     self.sysregs.vbar_el1 = read_sysreg!(vbar_el1);
+    //     self.sysregs.esr_el1 = read_sysreg!(esr_el1);
+    //     self.sysregs.far_el1 = read_sysreg!(far_el1);
 
-        self.regs.elr = read_sysreg!(elr_el2);
-        isb!();
-    }
+    //     self.regs.elr = read_sysreg!(elr_el2);
+    //     isb!();
+    // }
 
 
     fn world_switch_to_guest(&mut self) {
@@ -192,44 +189,6 @@ impl Vcpu {
         unsafe { switch_out() };
     }
     
-    pub fn handle_exit(&mut self, exit_reason: ExitReason) -> VmExitAction {
-        match exit_reason {
-            ExitReason::Hvc => {
-                // 处理 HVC 调用
-                VmExitAction::Continue
-            },
-            ExitReason::DataAbort => {
-                // 处理数据中止
-                VmExitAction::Continue
-            },
-            ExitReason::InstructionAbort => {
-                // 处理指令中止
-                VmExitAction::Continue
-            },
-            ExitReason::Irq => {
-                // 处理中断
-                VmExitAction::Continue
-            },
-        }
-    }
-
-    // pub fn get_vm(&self) -> Option<Arc<Mutex<VirtualMachine>>> {
-    //     let vm_manager = VM_MANAGER.lock();
-    //     debug!("get_vm {}", self.vm_id);
-    //     for vm_arc in vm_manager.iter() {
-    //         let vmid = vm_arc.lock().id;
-    //         debug!("vm_id {}", vmid);
-    //         if vmid == self.vm_id {
-    //             debug!("vm_id {}", vmid);
-    //             return Some(vm_arc.clone());
-    //         }
-    //     }
-
-    //     None
-    // }
-
-
-
     pub fn vgic_irq_get<'a>(&'a mut self, irq_num: usize) -> Option<IrqRef<'a>> {
         if irq_num < 16 {
             // SGI
@@ -242,7 +201,7 @@ impl Vcpu {
             // SPI
             let idx = irq_num - 32;
             // 1. 获取锁
-            let mut dist = self.vgic_dist.lock();
+            let dist = self.vgic_dist.lock();
             
             // 2. 检查索引
             if idx < dist.spis.len() {
@@ -273,19 +232,4 @@ impl Vcpu {
 
 }
 
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
-pub enum ExitReason {
-    Hvc,           // Hypervisor Call
-    DataAbort,     // 数据访问异常
-    InstructionAbort, // 指令访问异常
-    Irq,           // 中断
-}
 
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
-pub enum VmExitAction {
-    Continue,      // 继续运行虚拟机
-    Stop,          // 停止虚拟机
-    Restart,       // 重启虚拟机
-}

@@ -2,7 +2,7 @@ use crate::arch::{sync_guest_memory};
 use crate::mem::{Frame, MemFlags, PageTableRoot};
 use crate::vm::MmioManager;
 use crate::vm::guest::{GuestDtb, GuestInitrd, GuestVMImage};
-use crate::vm::vcpu::{Vcpu, VcpuState, ExitReason, VmExitAction};
+use crate::vm::vcpu::{Vcpu, VcpuState};
 use crate::write_sysreg;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -13,7 +13,7 @@ use crate::mem::page_count;
 use crate::gic::VgicDist;
 use crate::vdevices::VirtualUart;
 
-#[allow(unused)]
+
 #[derive(Debug, Clone)]
 pub struct VmConfig {
     pub guest_image: GuestVMImage,
@@ -24,7 +24,7 @@ pub struct VmConfig {
     pub vcpu_count: u32,
 }
 
-#[allow(unused)]
+
 #[derive(Debug)]
 pub struct VirtualMachine {
     pub id: u32,
@@ -36,16 +36,14 @@ pub struct VirtualMachine {
     pub vgic_dist : Arc<Mutex<VgicDist>>,
     pub mmio_manager: Arc<Mutex<MmioManager>>,
 }
-#[allow(unused)]
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VmState {
     Created,
     Running,
-    Paused,
     Stopped,
-    Error,
 }
-#[allow(unused)]
+
 impl VirtualMachine {
     pub fn new(id: u32, config: VmConfig) -> Result<Self, &'static str> {
         let mut vcpus = Vec::with_capacity(config.vcpu_count as usize);
@@ -224,7 +222,7 @@ impl VirtualMachine {
         
         Ok(())
     }
-    
+    #[allow(unused)]
     pub fn stop(&mut self) {
         self.state = VmState::Stopped;
         for vcpu in &mut self.vcpus {
@@ -233,46 +231,6 @@ impl VirtualMachine {
         info!("VM {} stopped", self.id);
     }
     
-    pub fn handle_vm_exit(&mut self, vcpu_id: u32, exit_reason: ExitReason) -> VmExitAction {
-        info!("VM {} VCPU {} exit: {:?}", self.id, vcpu_id, exit_reason);
-        
-        // 打印寄存器信息
-        if let Some(vcpu) = self.vcpus.get(0) {
-            info!("=== Guest VCPU Registers ===");
-            info!("PC: 0x{:x}", vcpu.regs.elr);
-            info!("ELR_EL1: 0x{:x}", vcpu.sysregs.elr_el1);
-            // info!("SP_EL0: 0x{:x}", vcpu.regs.sp_el0);
-            // info!("SP_EL1: 0x{:x}", vcpu.regs.sp_el1);
-            info!("SPSR_EL1: 0x{:x}", vcpu.sysregs.spsr_el1);
-            info!("ESR_EL1: 0x{:x}", vcpu.sysregs.esr_el1);
-            info!("FAR_EL1: 0x{:x}", vcpu.sysregs.far_el1);
-            info!("SCTLR_EL1: 0x{:x}", vcpu.sysregs.sctlr_el1);
-            info!("TCR_EL1: 0x{:x}", vcpu.sysregs.tcr_el1);
-            info!("TTBR0_EL1: 0x{:x}", vcpu.sysregs.ttbr0_el1);
-            info!("TTBR1_EL1: 0x{:x}", vcpu.sysregs.ttbr1_el1);
-            info!("MAIR_EL1: 0x{:x}", vcpu.sysregs.mair_el1);
-            info!("VBAR_EL1: 0x{:x}", vcpu.sysregs.vbar_el1);
-            
-            // 打印通用寄存器 X0-X30
-            for i in (0..31).step_by(4) {
-                let x1 = if i+1 < 31 { vcpu.regs.x[i+1] } else { 0 };
-                let x2 = if i+2 < 31 { vcpu.regs.x[i+2] } else { 0 };
-                let x3 = if i+3 < 31 { vcpu.regs.x[i+3] } else { 0 };
-                info!("X[{}]: 0x{:x}  X[{}]: 0x{:x}  X[{}]: 0x{:x}  X[{}]: 0x{:x}", 
-                      i, vcpu.regs.x[i],
-                      i+1, x1,
-                      i+2, x2,
-                      i+3, x3);
-            }
-            info!("============================");
-        }
-        
-        if let Some(vcpu) = self.vcpus.get_mut(vcpu_id as usize) {
-            vcpu.handle_exit(exit_reason)
-        } else {
-            VmExitAction::Stop
-        }
-    }
 }
 
 pub static VM_MANAGER: Mutex<Vec<Arc<Mutex<VirtualMachine>>>> = Mutex::new(Vec::new());

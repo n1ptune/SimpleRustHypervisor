@@ -1,8 +1,7 @@
 use core::fmt;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
-#[allow(unused)]
-use log::debug;
+
 
 use crate::vm::Vcpu;
 
@@ -80,7 +79,6 @@ impl MmioManager{
     }
 
     pub fn handle_mmio(&mut self, vcpu: &mut Vcpu, srt: usize, access: MmioAccess) -> bool{
-        // debug!("MMIO Access: {:x?}", access.ipa);
         let addr = access.ipa;
         let wnr = access.wnr;
         for space in self.mmio_spaces.iter_mut(){

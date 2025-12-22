@@ -37,7 +37,6 @@ impl MmioSpace for VirtualUart {
     }
 
     fn mmio_read(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, _access: MmioAccess) -> bool {
-        // debug!("mmio read {:x}", offset);
         if srt == 31 {
             return true;
         }
@@ -47,7 +46,6 @@ impl MmioSpace for VirtualUart {
                 self.status_reg |= 1 << 4;
             }, // UARTDR
             0x18 => {
-                // debug!("mmio read {:x}", offset);
                 vcpu.regs.x[srt] = self.status_reg as u64; 
             }, // UARTFR
             0x30 => {
@@ -57,7 +55,6 @@ impl MmioSpace for VirtualUart {
                 vcpu.regs.x[srt] = self.imsc_reg as u64; 
             }, 
             0x3c => {
-                // debug!("mmio read {:x}", offset);
                 vcpu.regs.x[srt] = self.ris_reg as u64;
             },
             0x40 => {
@@ -80,7 +77,6 @@ impl MmioSpace for VirtualUart {
     }
 
     fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, _access: MmioAccess) -> bool {
-        // debug!("mmio write {:x}", offset);
         let val = if srt == 31 { 0 } else { vcpu.regs.x[srt] };
         match offset {
             0x00 => {
@@ -113,7 +109,7 @@ impl MmioSpace for VirtualUart {
                 true
             }
             _ => {
-                info!("UART: Unknown write offset 0x{:x}", offset);
+                error!("UART: Unknown write offset 0x{:x}", offset);
                 return false;
             }
         }

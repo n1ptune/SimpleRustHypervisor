@@ -1,5 +1,4 @@
-#![allow(unused)]
-
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct GuestDtb{
     pub name: &'static str,
@@ -7,7 +6,7 @@ pub struct GuestDtb{
     pub end: usize,
     pub size: usize,
 }
-
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct GuestVMImage {
     pub name: &'static str,
@@ -15,7 +14,7 @@ pub struct GuestVMImage {
     pub end: usize,
     pub size: usize,
 }
-
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct GuestInitrd {
     pub name: &'static str,

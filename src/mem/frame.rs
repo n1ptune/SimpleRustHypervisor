@@ -176,7 +176,6 @@ impl Frame {
 
 impl Drop for Frame {
     fn drop(&mut self) {
-        debug!("drop frame {:x}", self.start_paddr());
         unsafe {
             match self.frame_count {
                 0 => {} // Do not deallocate when use Frame::from_paddr()

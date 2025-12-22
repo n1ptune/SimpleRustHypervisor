@@ -1,5 +1,3 @@
-#[allow(unused)]
-use log::info;
 
 use crate::exception::exception_handler::get_current_vcpu_ptr;
 use crate::gic::{GIC_IRQ_OPS};
@@ -9,7 +7,6 @@ use crate::vm::{AccessSize, MmioAccess, Vcpu};
 
 #[no_mangle]
 extern "C" fn el1_irq_proc() {
-    // info!("el1_irq_proc");
     let vcpu_ptr = get_current_vcpu_ptr();
     if vcpu_ptr.is_null() {
             panic!("Critical: Exception in hypervisor context!");
@@ -23,7 +20,6 @@ extern "C" fn el1_irq_proc() {
     let irq = gic_irq_ops.get_irq() & 0x3FF;
 
     if irq == 33 {
-        // info!("PL011 UART IRQ received");
         handle_pl011_uart_irq(vcpu_ref);
     }
     gic_irq_ops.guest_eoi(irq);
@@ -44,6 +40,5 @@ pub fn handle_pl011_uart_irq(vcpu: &mut Vcpu) {
     let x0 = vcpu.regs.x[0];
     vcpu.regs.x[0] = char as u64;
     mmio_manager.lock().handle_mmio(vcpu, 0, access);
-    // info!("PL011 UART IRQ: {}", char as char);
     vcpu.regs.x[0] = x0;
 }

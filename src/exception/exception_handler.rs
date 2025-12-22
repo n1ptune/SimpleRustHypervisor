@@ -4,7 +4,7 @@ use core::arch::asm;
 use crate::exception::psci::{SMC32_PSCI_FID_MAX, SMC32_PSCI_FID_MIN, SMC64_PSCI_FID_MAX, SMC64_PSCI_FID_MIN, handle_psci_call};
 use crate::exception::smc::{SMCCC_ARCH_FEATURES, SMCCC_ARCH_SOC_ID, SMCCC_VERSION, handle_vsmc_call};
 use crate::read_sysreg;
-use crate::vm::{AccessSize, ExitReason, MmioAccess, VM_MANAGER, Vcpu, VmExitAction};
+use crate::vm::{AccessSize, MmioAccess, VM_MANAGER, Vcpu};
 use crate::vm::{EsrEl2, Ec};
 use log::*;
 
@@ -29,28 +29,23 @@ pub fn get_current_vcpu_ptr() -> *mut Vcpu {
 
 pub fn dump_regs(ctx: &mut Vcpu, esr: EsrEl2){
     unsafe {
-        info!("============================");
-        info!("Exception Context:");
+        debug!("============================");
+        debug!("Exception Context:");
         for i in (0..30).step_by(2) {
-            info!("x{}: 0x{:x}, x{}: 0x{:x}", i, ctx.regs.x[i], i + 1, ctx.regs.x[i + 1]);
+            debug!("x{}: 0x{:x}, x{}: 0x{:x}", i, ctx.regs.x[i], i + 1, ctx.regs.x[i + 1]);
         }
-        info!("x{}: 0x{:x}", 30, ctx.regs.x[30]);
+        debug!("x{}: 0x{:x}", 30, ctx.regs.x[30]);
 
         let far = read_sysreg!(FAR_EL2);
-        info!("ESR_EL2: 0x{:x}, FAR_EL2: 0x{:x}", esr.raw(), far); // ctx.regs.esr.raw(), ctx.regs.far);
-        info!("ELR_EL2: 0x{:x}, SPSR_EL2: 0x{:x}", ctx.regs.elr, ctx.regs.spsr);
-        info!("SP_EL1: 0x{:x}", ctx.regs.sp_el1);
-        info!("============================");
+        debug!("ESR_EL2: 0x{:x}, FAR_EL2: 0x{:x}", esr.raw(), far); // ctx.regs.esr.raw(), ctx.regs.far);
+        debug!("ELR_EL2: 0x{:x}, SPSR_EL2: 0x{:x}", ctx.regs.elr, ctx.regs.spsr);
+        debug!("SP_EL1: 0x{:x}", ctx.regs.sp_el1);
+        debug!("============================");
     }
 
 }
 #[no_mangle]
 pub extern "C" fn handle_sync_exception_from_asm() {
-    // dump_regs(ctx);
-    // panic!("vm exit");
-    // dispatch ec
-    // info!("handle_sync_exception_from_asm");
-
     let vcpu_ptr = get_current_vcpu_ptr();
 
     if vcpu_ptr.is_null() {
@@ -69,10 +64,9 @@ pub extern "C" fn handle_sync_exception_from_asm() {
         Ec::Smc       => handle_smc_call(vcpu_ref, esr),
         _ => {
             dump_regs(vcpu_ref, esr);
-            info!("Exception Class: 0x{:x}", esr.ec());
+            error!("Exception Class: 0x{:x}", esr.ec());
         }
     }
-    // ctx.pc += 4;
 }
 
 pub fn handle_data_abort(vcpu: &mut Vcpu, esr: EsrEl2) {
@@ -99,7 +93,7 @@ pub fn handle_data_abort(vcpu: &mut Vcpu, esr: EsrEl2) {
         vcpu.regs.elr += 4;
         return;
     }
-    info!("unknown data abort at IPA=0x{:x}", ipa);
+    error!("unknown data abort at IPA=0x{:x}", ipa);
 }
 
 pub fn handle_insn_abort(vcpu: &mut Vcpu){
@@ -107,46 +101,26 @@ pub fn handle_insn_abort(vcpu: &mut Vcpu){
     panic!();
 }
 
-pub fn handle_sync_exception(ctx: &mut ExceptionContext) -> VmExitAction {
-    let ec = ctx.esr.ec();
-    
-    info!("Sync exception: EC=0x{:x}, ESR=0x{:x}, FAR=0x{:x}, PC=0x{:x}", 
-          ec, ctx.esr.raw(), ctx.far, ctx.pc);
-    VmExitAction::Stop
-}
-
 fn handle_smc_call(vcpu: &mut Vcpu, esr: EsrEl2) {
-    //  id in reg x0
+
     let function_id = vcpu.regs.x[0];
-    // info!("SMC/HVC call with function id: 0x{:x}", function_id);
+
     match function_id {
         SMCCC_VERSION | SMCCC_ARCH_FEATURES | SMCCC_ARCH_SOC_ID => {
-            // Handle SMCCC version call
-            // info!("Handling SMCCC_VERSION call");
             vcpu.regs.x[0] = handle_vsmc_call(function_id, vcpu.regs.x[1]); // Example version 1.1
         },
         id if (id >= SMC32_PSCI_FID_MIN && id <= SMC32_PSCI_FID_MAX) ||
               (id >= SMC64_PSCI_FID_MIN && id <= SMC64_PSCI_FID_MAX) => {
-            // Handle PSCI calls
-            // info!("Handling PSCI call: 0x{:x}", function_id);
-            // For simplicity, just return success for known PSCI calls
             vcpu.regs.x[0] = handle_psci_call(vcpu, function_id, vcpu.regs.x[1], vcpu.regs.x[2]); // PSCI_SUCCESS
         },
         _ => {
-            info!("Unknown SMC/HVC function id: 0x{:x}", function_id);
-            vcpu.regs.x[0] = 0xffffffff; // Indicate failure or unknown function
+            error!("Unknown SMC/HVC function id: 0x{:x}", function_id);
+            vcpu.regs.x[0] = 0xffffffff; 
         }
     }
 
 }
 
-pub fn handle_irq_exception(ctx: &mut ExceptionContext) -> VmExitAction {
-    info!("IRQ exception at PC=0x{:x}", ctx.pc);
-    
-    //handle irq
-    
-    VmExitAction::Continue
-}
 
 pub fn setup_exception_handlers() {
     extern "C" {

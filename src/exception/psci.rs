@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::{error, warn};
 
 use crate::{arch::smc_call, vm::Vcpu};
 
@@ -52,7 +52,7 @@ pub fn handle_psci_call(vcpu: &mut Vcpu, function_id: u64, target_cpu: u64, entr
             0 // Indicate feature not supported
         }
         _ => {
-            info!("Unsupported PSCI function ID: 0x{:x}", function_id);
+            error!("Unsupported PSCI function ID: 0x{:x}", function_id);
             0xffffffff // Indicate error for unsupported function
         }
     }

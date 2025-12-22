@@ -2,7 +2,7 @@ use alloc::{format, string::String};
 use crate::{gic::{GIC_MAX_LRS, VgicIrqConfig, VgicVcpu, gicr::*, gicv3::{gic_create_lr, gic_read_list_reg, gic_write_list_reg, lr_is_inactive}}, vm::{MmioAccess, Vcpu}};
 use super::gicd::*;
 use crate::vm::{MmioSpace};
-#[allow(unused)]
+
 use log::*;
 pub struct VirtualGicd {
     pub base_addr: usize,
@@ -25,7 +25,6 @@ impl MmioSpace for VirtualGicd {
     }
 
     fn mmio_read(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
-        // info!("vgicd_read offset {:x} access {:x?}", offset, access.wnr);
         // 目标寄存器是零寄存器（WZR/XZR），丢弃结果即可
         if srt == 31 {
             return true;
@@ -130,7 +129,6 @@ impl MmioSpace for VirtualGicd {
     }
 
     fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
-        // info!("vgicd_write offset {:x} access {:x?}", offset, access.wnr);
         // srt==31 表示零寄存器，值恒为 0，不访问寄存器数组
         let val = if srt == 31 { 0 } else { vcpu.regs.x[srt] };
         match offset {
@@ -246,7 +244,6 @@ impl MmioSpace for VirtualGicr {
     }
 
     fn mmio_read(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
-        // info!("vgicr_read offset {:x} access {:x?}", offset, access.wnr);
         if srt == 31 {
             return true;
         }
@@ -309,7 +306,6 @@ impl MmioSpace for VirtualGicr {
     }
 
     fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
-        // info!("vgicr_write offset {:x} access {:x?}", offset, access.wnr);
         let val = if srt == 31 { 0 } else { vcpu.regs.x[srt] };
 
         let gicr_index = offset / GICR_STRIDE;
@@ -378,10 +374,8 @@ pub fn virq_inject(vcpu: &mut Vcpu, pirq: u32, virq: u32) -> Result<(), &'static
     
     if let Some(n) = alloc_lr(&mut vcpu.vgic) {
         gic_write_list_reg(n, lr);
-        // debug!("Injected IRQ {} to List Register {}", virq, n);
         Ok(())
     } else {
-        // info!("Failed to inject IRQ {}: no available List Register", virq);
         Err("No List Register")
     }
 }
@@ -394,7 +388,6 @@ pub fn vgic_enter(vcpu: &mut Vcpu) {
         if (vgic_cpu.used_lr & (1 << i)) != 0 {
             let lr = gic_read_list_reg(i);
             if lr_is_inactive(lr) {
-                // info!("VGIC: Reclaiming active LR {} with value {:x}", i, lr);
                 vgic_cpu.used_lr &= !(1 << i);
             }
         }

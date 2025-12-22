@@ -6,7 +6,9 @@ use crate::gic::GicIrqOps;
 
 #[no_mangle]
 extern "C" fn handle_exception() {
+    info!("handle exception");
     let gic_irq_ops = GIC_IRQ_OPS.lock();
+    info!("el2 IRQ");
     let irq = gic_irq_ops.get_irq() & 0x3FF;
 
     info!("el2 IRQ: {}", irq);

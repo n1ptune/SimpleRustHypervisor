@@ -1,5 +1,7 @@
 #[macro_use]
 mod qemu;
+use core::arch::asm;
+
 pub use qemu::*;
 mod page_table;
 pub use page_table::*;
@@ -12,7 +14,7 @@ pub fn flush_tlb() {
     
     // 刷新所有中间物理机的TLB条目
     unsafe {
-        core::arch::asm!(
+        asm!(
             "tlbi vmalls12e1"
         );
     }
@@ -35,7 +37,7 @@ pub fn flush_tlb_ipa_s2(ipa: usize) {
     unsafe {
         // 步骤 2: 无效化 TLB
 
-        core::arch::asm!(
+        asm!(
             "tlbi ipas2e1is, {}", 
             in(reg) addr_for_tlbi, options(nostack)
             );
@@ -53,4 +55,47 @@ pub fn flush_tlb_ipa_s2(ipa: usize) {
 pub fn coreid() -> usize {
     let val = read_sysreg!(mpidr_el1);
     (val & 0xf) as usize
+}
+
+pub unsafe fn sync_guest_memory(start: usize, size: usize) {
+    let line_size = 64; // 通常是 64 字节
+    let end = start + size;
+    
+    // 1. Clean D-Cache: 把你 memcpy 进去的数据从 CPU 缓存推送到内存
+    // 如果不做这一步，MMU 看到的页表可能是空的！
+    let mut addr = start & !(line_size - 1);
+    while addr < end {
+        // DC CVAU: Data Cache Clean by VA to Point of Unification
+        asm!("dc cvau, {0}", in(reg) addr);
+        addr += line_size;
+    }
+    asm!("dsb ish"); // 确保数据真的到了内存
+
+    // 2. Invalidate I-Cache: 告诉 CPU 指令缓存该更新了
+    // 如果不做这一步，Guest 可能会执行到旧的指令
+    addr = start & !(line_size - 1);
+    while addr < end {
+        // IC IVAU: Instruction Cache Invalidate by VA to Point of Unification
+        asm!("ic ivau, {0}", in(reg) addr);
+        addr += line_size;
+    }
+    
+    // 3. 最后的屏障
+    asm!("dsb ish");
+    asm!("isb");
+}
+
+
+pub unsafe fn smc_call(function_id: u64, arg1: u64, arg2: u64) -> u64 {
+    let mut ret0: u64;
+
+    asm!(
+        "smc #0",
+        in("x0") function_id,
+        in("x1") arg1,
+        in("x2") arg2,
+        lateout("x0") ret0,
+    );
+
+    ret0
 }

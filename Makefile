@@ -5,21 +5,13 @@ load_addr=0x40200000
 entry_point=0x40200000
 uboot_path=$(WORKDIR)/bin/u-boot.bin
 elf_path=$(WORKDIR)/target/aarch64-unknown-none-softfloat/debug/SimpleRustHypervisor
-# hypervisor_path=$(WORKDIR)/bin/SimpleRustHypervisor.elf
 binary_path=$(WORKDIR)/bin/SimpleRustHypervisor
 hypervisor_img=$(WORKDIR)/bin/SRH_Uimage
-guest_elf=$(WORKDIR)/target/aarch64-unknown-none-softfloat/debug/guest
-GUEST_SRC := $(shell find guest/src -name '*.rs') guest/Cargo.toml
+guest_elf=bin/Image
 
 .PHONY : build run clean debug guest
 
-$(guest_elf): $(GUEST_SRC)
-	cd guest && cargo build 
-
-bin/guest.bin: $(guest_elf)
-	llvm-objcopy -O binary -R .note -R .comment $< $@
-
-bin/guest.o: bin/guest.bin $(guest_elf)
+bin/guest.o: $(guest_elf)
 	ld.lld -m aarch64elf -r -b binary -o $@ $<
 
 build: bin/guest.o 
@@ -40,6 +32,7 @@ debug: build
                     -bios $(uboot_path) \
                     -device loader,file=$(hypervisor_img),addr=0x40200000,force-raw=on \
 					-device virtio-serial-device \
+					-monitor telnet:127.0.0.1:4444,server,nowait \
 					-s -S
 clean:
 	cargo clean

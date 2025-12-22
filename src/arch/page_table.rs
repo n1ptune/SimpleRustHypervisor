@@ -115,6 +115,14 @@ pub const HCR_FMO: u64 = 1 << 3;   /* Physical FIQ Routing */
 pub const HCR_IMO: u64 = 1 << 4;   /* Physical IRQ Routing */
 pub const HCR_RW: u64 = 1 << 31;  /* The Execution state for EL1 is AArch64 */
 pub const HCR_TSC: u64 = 1 << 19;  /* Trap SMC instructions to EL2 */
+pub const HCR_TID3: u64 = 1 << 18;
+pub const HCR_TVM: u64 = 1 << 26;  /* Trap virtual memory controls to EL2 */
+pub const HCR_TACR: u64 = 1 << 21; /* Trap ACTLR_EL1 accesses to EL2 */
+pub const HCR_TIDCP: u64 = 1 << 20; /* Trap implementation-defined functionality */
+pub const HCR_AMO: u64 = 1 << 5;   /* Physical SError routing */
+pub const HCR_BSU: u64 = 2 << 9;   /* Barrier shareability upgrade */
+pub const HCR_FB: u64 = 1 << 32;   /* Force Broadcast */
+pub const HCR_VSE: u64 = 1 << 8;   /* Virtual SError Interrupt */
 
 // Memory attribute indices
 pub const DEVICE_NGNRNE_INDEX: u64 = 0;
@@ -122,8 +130,14 @@ pub const NORMAL_WB_INDEX: u64 = 1;
 
 // Memory attribute values
 pub const DEVICE_NGNRNE: u64 = 0x00;
-pub const NORMAL_WB: u64 = 0xff;
+pub const NORMAL_WB: u64 = 0x44;
 
 pub const fn pa_range(feature: u64) -> u64 {
     feature & 0xF
+}
+
+pub const SPSR_DAIF: u64 = 0xf << 6;
+
+pub const fn spsr_m(n: u64) -> u64 {
+    n & 0xF
 }

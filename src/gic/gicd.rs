@@ -8,6 +8,7 @@ pub const GICD_CTLR: usize = 0x0;
 pub const GICD_TYPER: usize = 0x4;
 pub const GICD_IIDR: usize = 0x8;
 pub const GICD_TYPER2: usize = 0xc;
+pub const GICD_PIDR2: usize = 0xffe8;
 
 pub const GICD_CTLR_ENABLE_G1A: u32 = 1 << 1;
 pub const GICD_CTLR_ENABLE_G1: u32 = 1 << 0;

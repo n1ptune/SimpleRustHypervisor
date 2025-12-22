@@ -126,10 +126,6 @@ impl PageTableRoot{
 
 }
 
-
-
-
-
 pub fn stage2_mmu_init() {
     info!("Stage2 Translation MMU initialization ...");
 
@@ -165,3 +161,7 @@ pub fn hyper_setup() {
     write_sysreg!(hcr_el2, hcr);
     isb!();
 }
+
+//timer_sysctl_init
+//free_area_init
+//0x0000000040d45898

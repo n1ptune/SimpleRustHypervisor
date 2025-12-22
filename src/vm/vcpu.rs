@@ -4,13 +4,7 @@ use alloc::sync::Arc;
 use log::*;
 use spin::Mutex;
 
-use crate::{arch::flush_tlb, 
-    gic::{GIC_IRQ_OPS, VgicDist, VgicVcpu, GicIrqOps}, 
-    isb, 
-    read_sysreg, 
-    write_sysreg,
-    utils::IrqRef, 
-    vm::MmioManager,
+use crate::{arch::{SPSR_DAIF, flush_tlb, spsr_m}, gic::{GIC_IRQ_OPS, GicIrqOps, VgicDist, VgicVcpu}, isb, read_sysreg, utils::IrqRef, vm::MmioManager, write_sysreg
 
 };
 #[repr(C)]
@@ -23,6 +17,11 @@ pub struct VcpuRegs {
   
     pub sp_el0: u64,        // 用户栈指针
     pub sp_el1: u64,        // 内核栈指针
+}
+
+
+extern "C" {
+    fn switch_out();
 }
 
 #[repr(C)]
@@ -40,14 +39,20 @@ pub struct VcpuSysRegs {
     pub vbar_el1: u64,      // 向量基址寄存器
     pub esr_el1: u64,       // 异常综合寄存器
     pub far_el1: u64,       // 故障地址寄存器
+    pub cntfrq_el0: u64,
+    pub cntv_ctl_el0: u64,
+    pub cntv_tval_el0: u64,
+    pub mpidr_el1: u64,
+    pub midr_el1: u64,
+
 }
 
 impl VcpuSysRegs {
-    pub fn new() -> Self {
+    pub fn new(id: u64) -> Self {
         VcpuSysRegs {
             elr_el1: 0,
-            spsr_el1: 0x3c5, // EL1h, IRQ/FIQ masked
-            sctlr_el1: 0x30c50830, // 默认系统控制寄存器值
+            spsr_el1: 0, 
+            sctlr_el1: 0, 
             tcr_el1: 0,
             ttbr0_el1: 0,
             ttbr1_el1: 0,
@@ -55,18 +60,23 @@ impl VcpuSysRegs {
             vbar_el1: 0,
             esr_el1: 0,
             far_el1: 0,
+            cntfrq_el0: 0,
+            cntv_ctl_el0: 0,
+            cntv_tval_el0: 0,
+            mpidr_el1: id,
+            midr_el1: 0x410FD081,
         }
     }
 }
 
 impl VcpuRegs {
-    pub fn new(entry_point:u64) -> Self {
+    pub fn new(entry_point: u64) -> Self {
         VcpuRegs {
             x: [0; 31],
             sp_el0: 0,
             sp_el1: 0,
             elr: entry_point,
-            spsr: 0,
+            spsr: SPSR_DAIF | spsr_m(5),
         }
     }
 }
@@ -99,7 +109,7 @@ impl Vcpu {
             id,
             vm_id,
             regs: VcpuRegs::new(entry_point),
-            sysregs: VcpuSysRegs::new(),
+            sysregs: VcpuSysRegs::new(id as u64),
             state: VcpuState::Stopped,
             entry_point,
             vgic: VgicVcpu::new(),
@@ -107,6 +117,12 @@ impl Vcpu {
             mmio_manager,
         };
         
+        let cnt = read_sysreg!(cntfrq_el0);
+
+        info!("cntfrq_el0: {:x}", cnt);
+
+        vcpu.sysregs.cntfrq_el0 = cnt;
+
         vcpu.vgic.init(id);
         // setup entry point
         vcpu.regs.elr = entry_point;
@@ -165,26 +181,15 @@ impl Vcpu {
 
 
     fn world_switch_to_guest(&mut self) {
-        flush_tlb();
+        
         self.restore_guest_context();
-        write_sysreg!(spsr_el2, 0x3c5);
+        info!("world_switch_to_guest elr_el2: {:x}, x0: {:x}", self.regs.elr, self.regs.x[0]);
+        write_sysreg!(spsr_el2, self.regs.spsr);
         write_sysreg!(tpidr_el2, self as *mut Vcpu as u64);
         // write_sysreg!(cpacr_el1, 3 << 20);
+        flush_tlb();
         isb!();
-        unsafe {
-            self.enter_guest();
-        }
-    }
-    
-    unsafe fn enter_guest(&mut self) {
-        // restore guest context
-        core::arch::asm!(
-            "ic ialluis",
-            "mov x0, {entry}",
-            "eret",
-            entry = in(reg) self.entry_point,
-            options(noreturn)
-        );
+        unsafe { switch_out() };
     }
     
     pub fn handle_exit(&mut self, exit_reason: ExitReason) -> VmExitAction {

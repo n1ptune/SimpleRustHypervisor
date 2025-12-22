@@ -1,6 +1,7 @@
+use crate::arch::{sync_guest_memory};
 use crate::mem::{Frame, MemFlags, PageTableRoot};
 use crate::vm::MmioManager;
-use crate::vm::guest::{GuestDtb, GuestVMImage};
+use crate::vm::guest::{GuestDtb, GuestInitrd, GuestVMImage};
 use crate::vm::vcpu::{Vcpu, VcpuState, ExitReason, VmExitAction};
 use crate::write_sysreg;
 use alloc::boxed::Box;
@@ -12,18 +13,12 @@ use crate::mem::page_count;
 use crate::gic::VgicDist;
 use crate::vdevices::VirtualUart;
 
-extern "C" {
-    pub static _binary_bin_guest_bin_start: usize;
-    pub static _binary_bin_guest_bin_end: usize;
-    pub static _binary_bin_guest_bin_size: usize;
-}
-
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct VmConfig {
     pub guest_image: GuestVMImage,
     pub guest_dtb: GuestDtb,
-    pub guest_initrd: usize,
+    pub guest_initrd: GuestInitrd,
     pub entry_addr: usize,
     pub memory_size: usize,
     pub vcpu_count: u32,
@@ -80,7 +75,7 @@ impl VirtualMachine {
         
     }
     
-    pub fn setup_memory(&mut self) -> Result<(), &'static str> {
+    pub fn map_memory(&mut self) -> Result<(), &'static str> {
         info!("Setting up guest memory for VM {}", self.id);
         
         // allocate physical memory for guest
@@ -124,11 +119,12 @@ impl VirtualMachine {
         unsafe {
             core::ptr::copy_nonoverlapping(
                 image.start as *const u8,
-                (guest_load_addr.start_paddr() + 0x200000) as *mut u8,
+                (guest_load_addr.start_paddr()) as *mut u8,
                 image.size
             );
+            sync_guest_memory(guest_load_addr.start_paddr(), image.size);
         }
-        
+
         info!("Guest image '{}' loaded at 0x{:x}, size: 0x{:x}", 
               image.name, guest_load_addr.start_paddr(), image.size);
         
@@ -145,18 +141,39 @@ impl VirtualMachine {
         unsafe {
             core::ptr::copy_nonoverlapping(
                 dtb.start as *const u8,
-                guest_load_addr.start_paddr() as *mut u8,
+                (guest_load_addr.start_paddr() + 0x7800000) as *mut u8,
                 dtb.size
             );
         }
         
         for vcpu in &mut self.vcpus {
             if vcpu.id == 0 {
-                vcpu.regs.x[0] = guest_load_addr.start_paddr() as u64;
+                vcpu.regs.x[0] = 0x47800000;
             }
         }
         info!("Guest dtb '{}' loaded at 0x{:x}, size: 0x{:x}", 
-              dtb.name, guest_load_addr.start_paddr(), dtb.size);
+              dtb.name, guest_load_addr.start_paddr() + 0x7800000, dtb.size);
+        
+        Ok(())
+    }
+
+    pub fn load_guest_initrd(&mut self) -> Result<(), &'static str> {
+        info!("Loading guest initrd for VM {}", self.id);
+        
+        let initrd = &self.config.guest_initrd;
+        let guest_load_addr = &self.guest_memory_base ;
+        
+        // copy guest initrd to allocated memory
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                initrd.start as *const u8,
+                (guest_load_addr.start_paddr() + 0x4000000) as *mut u8,
+                initrd.size
+            );
+        }
+        
+        info!("Guest initrd '{}' loaded at 0x{:x}, size: 0x{:x}", 
+              initrd.name, guest_load_addr.start_paddr() + 0x4000000, initrd.size);
         
         Ok(())
     }
@@ -168,18 +185,31 @@ impl VirtualMachine {
         }
         
         // setup memory
-        self.setup_memory()?;
+        self.map_memory()?;
         
         // load guest image
         self.load_guest_image()?;
         self.load_guest_dtb()?;
+        self.load_guest_initrd()?;
 
         self.vgic_dist.lock().init(&mut *self.mmio_manager.lock());
         
         // Set up stage 2 translation by writing the page table address to VTTBR_EL2
-        let page_table_addr = self.root_page_table.get_root() as u64;
-        info!("Setting VTTBR_EL2 to page table address: 0x{:x}", page_table_addr);
-        write_sysreg!(vttbr_el2, page_table_addr);
+        // VTTBR_EL2 format: [63:48]=VMID, [47:1]=Physical base address (bits 50:2), [0]=CnP
+        let page_table_paddr = self.root_page_table.get_root() as u64;
+        let vmid_bits = (self.id as u64 & 0xFFFF) << 48;  // VMID in upper 16 bits
+        let vttbr_val = vmid_bits | (page_table_paddr & 0xFFFF_FFFF_FFFF_F000);
+        
+        info!("Setting VTTBR_EL2: page_table_addr=0x{:x}, vmid={}, vttbr=0x{:x}", 
+              page_table_paddr, self.id, vttbr_val);
+        write_sysreg!(vttbr_el2, vttbr_val);
+        
+        // Invalidate TLB entries for the virtual address space
+        unsafe {
+            core::arch::asm!("tlbi alle1is");  // Invalidate all stage 2 TLB entries
+            core::arch::asm!("dsb ish");        // Data barrier
+            core::arch::asm!("isb");            // Instruction synchronization barrier
+        }
         
         // start main vcpu
         if let Some(vcpu) = self.vcpus.get_mut(0) {

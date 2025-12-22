@@ -161,3 +161,9 @@ fiq_exception_handler:
 // SError 异常处理程序
 serror_exception_handler:
     b exception_handler
+
+.global  switch_out
+.type    switch_out, function
+switch_out:
+    restore_vm_regs
+    eret

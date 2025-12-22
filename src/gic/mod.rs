@@ -11,7 +11,7 @@ use vgic::*;
 use gicd::*;
 use gicr::*;
 
-pub use vgic::virq_inject;
+pub use vgic::{virq_inject, vgic_enter};
 
 use crate::vm::MmioManager;
 
@@ -99,6 +99,6 @@ impl VgicDist {
 
     pub fn init(&mut self, mmio_manager:&mut MmioManager){
         mmio_manager.add_mmio_space(Box::new(VirtualGicd::new(GICD_BASE, GICD_SIZE)));
-        mmio_manager.add_mmio_space(Box::new(VirtualGicd::new(GICR_BASE, GICR_SIZE)));
+        mmio_manager.add_mmio_space(Box::new(VirtualGicr::new(GICR_BASE, GICR_SIZE)));
     }
 }

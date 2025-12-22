@@ -1,7 +1,8 @@
 use alloc::{format, string::String};
-use crate::{gic::{VgicIrqConfig, VgicVcpu, gicr::*, gicv3::{gic_create_lr, gic_write_list_reg}}, vm::{MmioAccess, Vcpu}};
+use crate::{gic::{GIC_MAX_LRS, VgicIrqConfig, VgicVcpu, gicr::*, gicv3::{gic_create_lr, gic_read_list_reg, gic_write_list_reg, lr_is_inactive}}, vm::{MmioAccess, Vcpu}};
 use super::gicd::*;
 use crate::vm::{MmioSpace};
+#[allow(unused)]
 use log::*;
 pub struct VirtualGicd {
     pub base_addr: usize,
@@ -23,7 +24,12 @@ impl MmioSpace for VirtualGicd {
         self.size
     }
 
-    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
+    fn mmio_read(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
+        // info!("vgicd_read offset {:x} access {:x?}", offset, access.wnr);
+        // 目标寄存器是零寄存器（WZR/XZR），丢弃结果即可
+        if srt == 31 {
+            return true;
+        }
         match offset {
             GICD_CTLR => {
                 let mut vgic_dist = vcpu.vgic_dist.lock();
@@ -40,6 +46,7 @@ impl MmioSpace for VirtualGicd {
                 let mut reg_val = (((vgic_dist.nspis + 32) >> 5) - 1) as u32;
                 // CPUNumber
                 reg_val |= (8 - 1) << 8; // GICD_TYPER_CPUNumber_SHIFT is 8
+                reg_val &= !((1 << 26) | (1 << 8) | (1 << 19));
                 vcpu.regs.x[srt] = reg_val as u64;
                 return true;
             },
@@ -111,6 +118,10 @@ impl MmioSpace for VirtualGicd {
                 vcpu.regs.x[srt] = 0;
                 return true;
             },
+            GICD_PIDR2 => {
+                vcpu.regs.x[srt] = gicd_read32(GICD_PIDR2) as u64;
+                return true;
+            },
             _ => {
                 error!("[vgicd_read] Unable to handle the GICD_* request");
             }
@@ -119,8 +130,9 @@ impl MmioSpace for VirtualGicd {
     }
 
     fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
-        
-        let val = vcpu.regs.x[srt];
+        // info!("vgicd_write offset {:x} access {:x?}", offset, access.wnr);
+        // srt==31 表示零寄存器，值恒为 0，不访问寄存器数组
+        let val = if srt == 31 { 0 } else { vcpu.regs.x[srt] };
         match offset {
             // simulate GICD_CTLR
             GICD_CTLR => {
@@ -201,6 +213,7 @@ impl MmioSpace for VirtualGicd {
             },
             _ => {
                 error!("[vgicd_write] Unable to handle the GICD_* request");
+                // vcpu.regs.elr += 4;
             }
         }
         false
@@ -232,7 +245,12 @@ impl MmioSpace for VirtualGicr {
         self.size
     }
 
-    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
+    fn mmio_read(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
+        // info!("vgicr_read offset {:x} access {:x?}", offset, access.wnr);
+        if srt == 31 {
+            return true;
+        }
+
         let _ = access;
         let gicr_index = offset / GICR_STRIDE;
         let gicr_offset = offset % GICR_STRIDE;
@@ -291,6 +309,9 @@ impl MmioSpace for VirtualGicr {
     }
 
     fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool {
+        // info!("vgicr_write offset {:x} access {:x?}", offset, access.wnr);
+        let val = if srt == 31 { 0 } else { vcpu.regs.x[srt] };
+
         let gicr_index = offset / GICR_STRIDE;
         let gicr_offset = offset % GICR_STRIDE;
         
@@ -339,11 +360,10 @@ impl MmioSpace for VirtualGicr {
 }
 
 
-fn alloc_lr(vgic_cpu: &mut VgicVcpu) -> Option<usize> {
-    // 假设GIC_MAX_LRS是一个全局常量或可以从某处获取
-    let gic_max_lrs = 16; // 这个值需要根据实际情况设置
+fn alloc_lr(vgic_cpu: &mut VgicVcpu) -> Option<u64> {
+    let gic_max_lrs = GIC_MAX_LRS.lock();
     
-    for i in 0..gic_max_lrs {
+    for i in 0..*gic_max_lrs {
         if (vgic_cpu.used_lr & (1 << i)) == 0 {
             vgic_cpu.used_lr |= 1 << i;
             return Some(i);
@@ -358,9 +378,26 @@ pub fn virq_inject(vcpu: &mut Vcpu, pirq: u32, virq: u32) -> Result<(), &'static
     
     if let Some(n) = alloc_lr(&mut vcpu.vgic) {
         gic_write_list_reg(n, lr);
-        debug!("Injected IRQ {} to List Register {}", virq, n);
+        // debug!("Injected IRQ {} to List Register {}", virq, n);
         Ok(())
     } else {
+        // info!("Failed to inject IRQ {}: no available List Register", virq);
         Err("No List Register")
     }
+}
+
+
+pub fn vgic_enter(vcpu: &mut Vcpu) {
+    let mut vgic_cpu = &mut vcpu.vgic;
+    let gic_max_lrs = GIC_MAX_LRS.lock();
+    for i in 0..*gic_max_lrs {
+        if (vgic_cpu.used_lr & (1 << i)) != 0 {
+            let lr = gic_read_list_reg(i);
+            if lr_is_inactive(lr) {
+                // info!("VGIC: Reclaiming active LR {} with value {:x}", i, lr);
+                vgic_cpu.used_lr &= !(1 << i);
+            }
+        }
+    }
+
 }

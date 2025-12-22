@@ -1,6 +1,7 @@
 use core::fmt;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
+#[allow(unused)]
 use log::debug;
 
 use crate::vm::Vcpu;
@@ -10,7 +11,7 @@ pub trait MmioSpace{
     fn base_addr(&self) -> usize;
     fn size(&self) -> usize;
 
-    fn mmio_read(&self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool;
+    fn mmio_read(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool;
     fn mmio_write(&mut self, vcpu: &mut Vcpu, srt: usize, offset: usize, access: MmioAccess) -> bool;
 
     fn debug_info(&self) -> String ;
@@ -41,7 +42,9 @@ pub struct MmioAccess{
     pub pc: usize,
     pub wnr: bool,
     pub access_size: AccessSize,
-}pub struct MmioManager{
+}
+
+pub struct MmioManager{
     mmio_spaces : Vec<Box<dyn MmioSpace + Send>>
 }
 
@@ -77,7 +80,7 @@ impl MmioManager{
     }
 
     pub fn handle_mmio(&mut self, vcpu: &mut Vcpu, srt: usize, access: MmioAccess) -> bool{
-        debug!("MMIO Access: {:x?}", access.ipa);
+        // debug!("MMIO Access: {:x?}", access.ipa);
         let addr = access.ipa;
         let wnr = access.wnr;
         for space in self.mmio_spaces.iter_mut(){

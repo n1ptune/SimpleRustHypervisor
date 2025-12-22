@@ -307,7 +307,6 @@ fn gic_set_config(irq: u32, config: u32) {
 
 fn gic_guest_eoi(irq: u32) {
     crate::write_sysreg!(ICC_EOIR1_EL1, irq as u64);
-    crate::write_sysreg!(ICC_DIR_EL1, irq as u64);
 }
 
 lazy_static!(
@@ -326,7 +325,7 @@ pub const GIC_LEVEL_TRIGGER: u32 = 0;
 pub const GIC_EDGE_TRIGGER: u32 = 2;
 pub const UART_IRQ_LINE: u32 = 33;
 
-pub fn gic_write_list_reg(n: usize, val: u64) {
+pub fn gic_write_list_reg(n: u64, val: u64) {
     match n {
         0 => crate::write_sysreg!(ICH_LR0_EL2, val),
         1 => crate::write_sysreg!(ICH_LR1_EL2, val),
@@ -348,6 +347,30 @@ pub fn gic_write_list_reg(n: usize, val: u64) {
     }
 }
 
+pub fn gic_read_list_reg(n: u64) -> u64 {
+    let val: u64;    
+    match n {
+        0 => val = crate::read_sysreg!(ICH_LR0_EL2),
+        1 => val = crate::read_sysreg!(ICH_LR1_EL2),
+        2 => val = crate::read_sysreg!(ICH_LR2_EL2),
+        3 => val = crate::read_sysreg!(ICH_LR3_EL2),
+        4 => val = crate::read_sysreg!(ICH_LR4_EL2),
+        5 => val = crate::read_sysreg!(ICH_LR5_EL2),
+        6 => val = crate::read_sysreg!(ICH_LR6_EL2),
+        7 => val = crate::read_sysreg!(ICH_LR7_EL2),
+        8 => val = crate::read_sysreg!(ICH_LR8_EL2),
+        9 => val = crate::read_sysreg!(ICH_LR9_EL2),
+        10 => val = crate::read_sysreg!(ICH_LR10_EL2),
+        11 => val = crate::read_sysreg!(ICH_LR11_EL2),
+        12 => val = crate::read_sysreg!(ICH_LR12_EL2),
+        13 => val = crate::read_sysreg!(ICH_LR13_EL2),
+        14 => val = crate::read_sysreg!(ICH_LR14_EL2),
+        15 => val = crate::read_sysreg!(ICH_LR15_EL2),
+        _ => panic!("Unknown ICH LR number"),
+    }
+    val
+}
+
 
 // LR字段定义
 const fn lr_state(n: u64) -> u64 {
@@ -366,7 +389,7 @@ const fn lr_vintid(n: u64) -> u64 {
     n & 0xffffffff
 }
 
-const fn lr_is_inactive(lr: u64) -> bool {
+pub const fn lr_is_inactive(lr: u64) -> bool {
     ((lr >> 62) & 0x3) == 0
 }
 

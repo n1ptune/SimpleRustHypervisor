@@ -40,8 +40,8 @@ pub fn run() -> Result<(), &'static str> {
             end: GUEST_INITRD.as_ptr() as usize + GUEST_INITRD.len(),
             size: GUEST_INITRD.len(),
         },
-        entry_addr: 0x40000000,
-        memory_size: 128 * 1024 * 1024, // 128MB
+        entry_addr: 0x40200000,
+        memory_size: 128 * 1024 * 1024 + 2 * 1024 * 1024, // 128MB + 2MB for dtb
         vcpu_count: 1,
     };
 

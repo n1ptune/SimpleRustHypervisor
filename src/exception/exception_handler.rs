@@ -59,7 +59,7 @@ pub extern "C" fn handle_sync_exception_from_asm() {
 
     match Ec::from_u8(esr.ec()) {
         Ec::DataAbort => handle_data_abort(vcpu_ref, esr),
-        Ec::InstAbort => handle_insn_abort(vcpu_ref),
+        Ec::InstAbort => handle_insn_abort(vcpu_ref, esr),
         Ec::Hvc       => handle_smc_call(vcpu_ref, esr),
         Ec::Smc       => handle_smc_call(vcpu_ref, esr),
         _ => {
@@ -93,11 +93,14 @@ pub fn handle_data_abort(vcpu: &mut Vcpu, esr: EsrEl2) {
         vcpu.regs.elr += 4;
         return;
     }
+    dump_regs(vcpu, esr);
     error!("unknown data abort at IPA=0x{:x}", ipa);
+    panic!();
 }
 
-pub fn handle_insn_abort(vcpu: &mut Vcpu){
+pub fn handle_insn_abort(vcpu: &mut Vcpu, esr: EsrEl2){
     debug!("handle_insn_abort");
+    dump_regs(vcpu, esr);
     panic!();
 }
 

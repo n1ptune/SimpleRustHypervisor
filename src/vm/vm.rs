@@ -117,14 +117,14 @@ impl VirtualMachine {
         unsafe {
             core::ptr::copy_nonoverlapping(
                 image.start as *const u8,
-                (guest_load_addr.start_paddr()) as *mut u8,
+                (guest_load_addr.start_paddr() + 0x200000) as *mut u8,
                 image.size
             );
-            sync_guest_memory(guest_load_addr.start_paddr(), image.size);
+            sync_guest_memory(guest_load_addr.start_paddr() + 0x200000, image.size);
         }
 
         info!("Guest image '{}' loaded at 0x{:x}, size: 0x{:x}", 
-              image.name, guest_load_addr.start_paddr(), image.size);
+              image.name, guest_load_addr.start_paddr() + 0x200000, image.size);
         
         Ok(())
     }
@@ -139,18 +139,18 @@ impl VirtualMachine {
         unsafe {
             core::ptr::copy_nonoverlapping(
                 dtb.start as *const u8,
-                (guest_load_addr.start_paddr() + 0x7800000) as *mut u8,
+                (guest_load_addr.start_paddr()) as *mut u8,
                 dtb.size
             );
         }
         
         for vcpu in &mut self.vcpus {
             if vcpu.id == 0 {
-                vcpu.regs.x[0] = 0x47800000;
+                vcpu.regs.x[0] = 0x40000000;
             }
         }
         info!("Guest dtb '{}' loaded at 0x{:x}, size: 0x{:x}", 
-              dtb.name, guest_load_addr.start_paddr() + 0x7800000, dtb.size);
+              dtb.name, guest_load_addr.start_paddr(), dtb.size);
         
         Ok(())
     }
